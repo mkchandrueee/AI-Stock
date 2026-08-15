@@ -1,9 +1,11 @@
 # Security Master — design (spec §18)
 
-Status: **DRAFT — for review.** Not implemented. No broker-specific field names below
-have been verified against Angel One's current docs (that's a separate, later step);
-this schema is deliberately broker-agnostic so it doesn't have to change once verification
-happens — only the adapter's mapping population does.
+Status: **Implemented as a migration** — [`migrations/0001_security_master.sql`](../../migrations/0001_security_master.sql)
+— and a resolver — [`src/security-master/postgres-instrument-resolver.ts`](../../src/security-master/postgres-instrument-resolver.ts).
+**Untested against a live database** — no Postgres instance is available in this
+environment; the migration has been reviewed by hand against this doc and the verified
+Angel One field shapes, not executed. Type-checks clean against
+`src/core/instrument-resolver.ts`.
 
 ## Why three tables, not one
 
@@ -75,11 +77,21 @@ field name, or error code may cross the adapter boundary").
 | `mapping_id` | UUID, PK | |
 | `instrument_id` | UUID, FK → `instrument` | |
 | `broker` | enum | `ANGEL_ONE` for Phase 1; enum leaves room for future brokers without a schema change. |
-| `broker_trading_symbol` | text | Broker's own symbol string. |
-| `broker_native_attributes` | jsonb | Catch-all for whatever else the broker keys instruments by (token, security ID, or other field — **names intentionally not fixed yet**, since Angel One's actual field names haven't been verified against current SmartAPI docs). Gets tightened into named columns once verification happens and the shape is actually known. |
+| `broker_instrument_token` | text, nullable | Angel One's `symboltoken`. Nullable because it's genuinely absent on some records — the trade book has no token field at all, and some order-book rows carry `null` (both confirmed against live doc examples during adapter implementation). |
+| `broker_trading_symbol` | text | Broker's own symbol string. Always present — the fallback lookup key when the token isn't. |
+| `broker_native_attributes` | jsonb | Catch-all for the rest: `exch_seg`, `instrumenttype`, `tick_size`, `is_cas_enabled`. |
 | `effective_from` | timestamptz | Broker-side mappings can themselves change (token reassignment) independent of the instrument. |
 | `effective_to` | timestamptz, nullable | |
 | `last_verified_date` | date | |
+
+**Revision from the original design:** the first version of this table kept the broker's
+instrument identifier inside `broker_native_attributes` entirely, deferring the exact
+shape until verification happened. Implementing `AngelOneAdapter` against it exposed why
+that doesn't work: `InstrumentResolver` needs to look up by token *or* by
+`(exchange, tradingSymbol)`, depending on which broker endpoint produced the record — a
+lookup key buried inside jsonb can't be indexed sanely. Both are now real, indexed
+columns (see the two unique indexes in the migration); jsonb is reserved for genuinely
+incidental fields only.
 
 ## What Phase 1 actually needs
 
@@ -110,4 +122,8 @@ history, just start writing versioned rows from day one.
 - Whether `instrument_type` needs `INDEX` in Phase 1 (depends on whether Angel One's
   positions/holdings responses ever reference an index directly, e.g. for margin/benchmark
   display) — unverified.
-- Any DDL/migration — this is a schema *design*, not yet a migration file.
+- The daily instrument-master ingestion job itself (the thing that calls
+  `OpenAPIScripMaster.json` and writes `instrument`/`instrument_version` rows) — the
+  migration and resolver exist; nothing populates the tables yet.
+- Running the migration against a real database — no Postgres instance exists in this
+  environment to verify it against.

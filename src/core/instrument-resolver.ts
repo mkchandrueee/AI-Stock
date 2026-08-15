@@ -25,6 +25,14 @@ export interface BrokerNativeInstrumentRef {
   exchange: string;
 }
 
+export type InstrumentResolution =
+  | { ok: true; instrumentId: InstrumentId }
+  /** Not found is an expected, handled outcome (e.g. instrument-master ingestion
+   * hasn't run yet, or a brand-new listing) — not an exception. The caller decides
+   * what to do with it; a resolver throwing here would force every caller into
+   * try/catch for a case that isn't exceptional. */
+  | { ok: false; ref: BrokerNativeInstrumentRef };
+
 export interface InstrumentResolver {
-  resolve(ref: BrokerNativeInstrumentRef): Promise<InstrumentId>;
+  resolve(ref: BrokerNativeInstrumentRef): Promise<InstrumentResolution>;
 }

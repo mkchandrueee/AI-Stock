@@ -210,16 +210,23 @@ export class AngelOneAdapter implements BrokerAdapter {
     );
     if (!result.ok) return result;
     const holdings: Holding[] = [];
+    const unresolved: string[] = [];
     for (const raw of result.value) {
       const token = coerceSymbolToken(raw.symboltoken);
-      if (token === null) continue;
-      const instrumentId = await this.config.instrumentResolver.resolve({
+      const resolution = await this.config.instrumentResolver.resolve({
         broker: "ANGEL_ONE",
         brokerInstrumentToken: token,
         tradingSymbol: raw.tradingsymbol,
         exchange: raw.exchange,
       });
-      holdings.push(mapHolding(raw, instrumentId, accountId));
+      if (!resolution.ok) {
+        unresolved.push(`${raw.exchange}:${raw.tradingsymbol}`);
+        continue;
+      }
+      holdings.push(mapHolding(raw, resolution.instrumentId, accountId));
+    }
+    if (unresolved.length > 0) {
+      return { ok: false, error: { kind: "PARTIAL_DATA", missing: unresolved } };
     }
     return { ok: true, value: holdings };
   }
@@ -235,16 +242,23 @@ export class AngelOneAdapter implements BrokerAdapter {
     );
     if (!result.ok) return result;
     const positions: Position[] = [];
+    const unresolved: string[] = [];
     for (const raw of result.value) {
       const token = coerceSymbolToken(raw.symboltoken);
-      if (token === null) continue;
-      const instrumentId = await this.config.instrumentResolver.resolve({
+      const resolution = await this.config.instrumentResolver.resolve({
         broker: "ANGEL_ONE",
         brokerInstrumentToken: token,
         tradingSymbol: raw.tradingsymbol,
         exchange: raw.exchange,
       });
-      positions.push(mapPosition(raw, instrumentId, accountId));
+      if (!resolution.ok) {
+        unresolved.push(`${raw.exchange}:${raw.tradingsymbol}`);
+        continue;
+      }
+      positions.push(mapPosition(raw, resolution.instrumentId, accountId));
+    }
+    if (unresolved.length > 0) {
+      return { ok: false, error: { kind: "PARTIAL_DATA", missing: unresolved } };
     }
     return { ok: true, value: positions };
   }
@@ -273,18 +287,23 @@ export class AngelOneAdapter implements BrokerAdapter {
     );
     if (!result.ok) return result;
     const orders: Order[] = [];
+    const unresolved: string[] = [];
     for (const raw of result.value) {
       const token = coerceSymbolToken(raw.symboltoken);
       // Order Book records can have a null symboltoken (seen in the docs' own
       // example response) — the resolver falls back to (exchange, tradingSymbol)
       // when that happens, same fallback the trade book always needs.
-      const instrumentId = await this.config.instrumentResolver.resolve({
+      const resolution = await this.config.instrumentResolver.resolve({
         broker: "ANGEL_ONE",
         brokerInstrumentToken: token,
         tradingSymbol: raw.tradingsymbol,
         exchange: raw.exchange,
       });
-      const order = mapOrder(raw, instrumentId, accountId);
+      if (!resolution.ok) {
+        unresolved.push(`${raw.exchange}:${raw.tradingsymbol}`);
+        continue;
+      }
+      const order = mapOrder(raw, resolution.instrumentId, accountId);
       if (order === null) {
         return {
           ok: false,
@@ -295,6 +314,9 @@ export class AngelOneAdapter implements BrokerAdapter {
         };
       }
       orders.push(order);
+    }
+    if (unresolved.length > 0) {
+      return { ok: false, error: { kind: "PARTIAL_DATA", missing: unresolved } };
     }
     return { ok: true, value: orders };
   }
@@ -310,16 +332,24 @@ export class AngelOneAdapter implements BrokerAdapter {
     );
     if (!result.ok) return result;
     const trades: Trade[] = [];
+    const unresolved: string[] = [];
     for (const raw of result.value) {
       // No symboltoken on trade records at all (confirmed absent from the documented
       // shape) — always resolve by (exchange, tradingSymbol) here.
-      const instrumentId = await this.config.instrumentResolver.resolve({
+      const resolution = await this.config.instrumentResolver.resolve({
         broker: "ANGEL_ONE",
         brokerInstrumentToken: null,
         tradingSymbol: raw.tradingsymbol,
         exchange: raw.exchange,
       });
-      trades.push(mapTrade(raw, instrumentId, accountId));
+      if (!resolution.ok) {
+        unresolved.push(`${raw.exchange}:${raw.tradingsymbol}`);
+        continue;
+      }
+      trades.push(mapTrade(raw, resolution.instrumentId, accountId));
+    }
+    if (unresolved.length > 0) {
+      return { ok: false, error: { kind: "PARTIAL_DATA", missing: unresolved } };
     }
     return { ok: true, value: trades };
   }
