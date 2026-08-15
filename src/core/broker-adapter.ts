@@ -23,6 +23,7 @@ export type Capability =
   | "POSITIONS"
   | "ORDER_BOOK"
   | "TRADE_BOOK"
+  | "PLACE_ORDER"
   | "MODIFY_ORDER"
   | "CANCEL_ORDER"
   | "FUNDS"
@@ -59,10 +60,18 @@ export interface BrokerAdapterMetadata {
   infrastructureRequirements: InfrastructureRequirements;
 }
 
+/**
+ * No refreshToken: verified against Angel One's own SDK source that the redirect
+ * login flow (the one that keeps the user's PIN/TOTP out of this codebase) returns
+ * only auth_token and feed_token — a refresh token is only issued by the
+ * password-based login this platform deliberately does not use. There is no silent
+ * renewal path for this flow; expiresAt exists so the platform can monitor and warn
+ * ahead of expiry (spec §38) and prompt the user through getLoginUrl() again.
+ */
 export interface AuthSession {
   accountRef: BrokerAccountRef;
   jwtToken: string;
-  refreshToken: string;
+  feedToken: string;
   expiresAt: string; // ISO 8601
 }
 
@@ -78,13 +87,23 @@ export type AdapterResult<T> =
 export interface BrokerAdapter {
   readonly metadata: BrokerAdapterMetadata;
 
-  authenticate(credentials: unknown): Promise<AdapterResult<AuthSession>>;
-  refreshSession(session: AuthSession): Promise<AdapterResult<AuthSession>>;
+  /** Builds the redirect URL the user is sent to; no credentials pass through this app. */
+  getLoginUrl(params: { redirectUrl: string; state?: string }): string;
+  /** Exchanges the redirect callback's query params for a session. No refresh path
+   * exists for this flow — see AuthSession. */
+  completeLogin(
+    callbackParams: Record<string, string>,
+  ): Promise<AdapterResult<AuthSession>>;
 
+  /**
+   * `accountId` is the platform-assigned canonical id for this connection (created
+   * when the user connected the broker), passed in by the caller — an adapter has no
+   * business minting platform-level ids, only broker-side ones.
+   */
   getAccount(session: AuthSession): Promise<AdapterResult<Account>>;
-  getHoldings(session: AuthSession): Promise<AdapterResult<Holding[]>>;
-  getPositions(session: AuthSession): Promise<AdapterResult<Position[]>>;
-  getFunds(session: AuthSession): Promise<AdapterResult<FundsSnapshot>>;
-  getOrderBook(session: AuthSession): Promise<AdapterResult<Order[]>>;
-  getTradeBook(session: AuthSession): Promise<AdapterResult<Trade[]>>;
+  getHoldings(session: AuthSession, accountId: string): Promise<AdapterResult<Holding[]>>;
+  getPositions(session: AuthSession, accountId: string): Promise<AdapterResult<Position[]>>;
+  getFunds(session: AuthSession, accountId: string): Promise<AdapterResult<FundsSnapshot>>;
+  getOrderBook(session: AuthSession, accountId: string): Promise<AdapterResult<Order[]>>;
+  getTradeBook(session: AuthSession, accountId: string): Promise<AdapterResult<Trade[]>>;
 }

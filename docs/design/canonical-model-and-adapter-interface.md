@@ -79,11 +79,51 @@ capability list from spec §1/§5 (not just what Phase 1 uses), each marked `SUP
 `LIMITED_SUPPORT`, `NOT_CURRENTLY_SUPPORTED`, or `UNVERIFIED` — so a future second broker
 slots into the same matrix without redefining it.
 
+## Changes made while implementing `AngelOneAdapter`
+
+Writing the implementation surfaced three problems with the interface as first
+committed, fixed in place rather than worked around:
+
+1. **Auth flow reshaped.** `authenticate(credentials)` assumed a direct call, which
+   fits `loginByPassword` but not the `publisher-login` redirect flow the platform
+   chose specifically to keep raw PIN/TOTP out of this codebase. Replaced with
+   `getLoginUrl()` + `completeLogin(callbackParams)`. Further discovery:
+   Angel One's own SDK source confirms the redirect flow returns no refresh token —
+   only `loginByPassword` gets one — so `AuthSession` has no `refreshToken` field.
+   There is no silent renewal path; session expiry is monitored via `expiresAt` and
+   renewal means sending the user through `getLoginUrl()` again.
+2. **`accountId` moved to a method parameter.** The original interface had adapters
+   return a full `Account`/`Holding`/etc with `accountId` populated, but an adapter has
+   no business minting the platform's own canonical id — that belongs to whatever
+   service persists the account when the user connects a broker. Every data-fetching
+   method now takes `accountId: string` from the caller; `getAccount` returns an
+   `Account` with `accountId: ""` for the caller to fill in.
+3. **`InstrumentResolver` needed two identifier fields, not one.** Angel One's trade
+   book has no instrument token at all — only `(exchange, tradingSymbol)` — and its
+   order book can have a null token on some rows too. The first version of
+   `BrokerNativeInstrumentRef` only had `brokerInstrumentToken`, which would have
+   forced a trading symbol into a field typed as a token. Both fields are now present
+   and nullable; a resolver implementation looks up by whichever is populated.
+
+See [`src/brokers/angel-one/adapter.ts`](../../src/brokers/angel-one/adapter.ts),
+[`mappers.ts`](../../src/brokers/angel-one/mappers.ts), and
+[`raw-types.ts`](../../src/brokers/angel-one/raw-types.ts) for the implementation.
+Error-code mapping is grounded in the verified table at
+`smartapi.angelbroking.com/docs/Exceptions` (2026-08-15) — see the adapter file for
+which codes map to which canonical error, and which broker "not found" codes are
+treated as a valid empty result rather than a failure (e.g. a user with zero holdings
+isn't an error case).
+
 ## What's deliberately not here yet
 
-- No `AngelOneAdapter` class implementing this interface — that's the next step, after
-  this contract is reviewed.
-- No dependency-injection wiring, no HTTP client choice, no retry/backoff policy — those
-  belong to the implementation, not the contract.
-- No persistence layer for these types (how `Holding` rows get stored) — that's the
-  Postgres schema, a separate design step.
+- No dependency-injection wiring, no persistence layer for these types (how `Holding`
+  rows get stored) — that's the Postgres schema, a separate design step.
+- No real `InstrumentResolver` implementation — only the interface. It depends on the
+  Security Master existing as running code, which it doesn't yet.
+- Rate-limit governance and the daily-reauth monitoring/alerting service are explicitly
+  platform-side concerns, not part of the adapter — see the comment on the
+  `AngelOneAdapter` class.
+- Several assumptions made during implementation are flagged inline rather than
+  resolved: the `X-Client*`/`X-MACAddress` header semantics for a server-side
+  multi-user platform, HTTP 403 as the rate-limit signal, and IST as the session's
+  implied timezone. All are called out in `adapter.ts`'s file-level comment.

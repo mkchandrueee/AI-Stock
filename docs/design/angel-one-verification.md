@@ -22,12 +22,23 @@ Root API endpoint: `https://apiconnect.angelone.in`.
     rule 4 (secrets never touch application code) favors it strongly. Flagging this as a
     design decision, not yet made — worth confirming before any adapter code is written.
 - Session (JWT) is valid until **12 midnight**, regardless of when it was issued.
-- `POST /rest/auth/angelbroking/jwt/v1/generateTokens` refreshes the JWT using the
-  refresh token — but doesn't establish whether the refresh token itself survives past
-  midnight. **Unverified**: whether full re-authentication (new TOTP) is required daily,
-  or only a refresh-token exchange. Matters directly for broker-adapters.md's requirement
-  that token refresh be "a scheduled, monitored, alerting service."
+- `POST /rest/auth/angelbroking/jwt/v1/generateTokens` refreshes the JWT using a
+  refresh token — but per Angel One's own Python SDK source (`smartConnect.py`), that
+  refresh token is only issued by `generateSession` (the `loginByPassword`-equivalent
+  call). **The `publisher-login` redirect callback does not include a refresh token at
+  all**, only `auth_token` and `feed_token`. Resolved: this platform uses the redirect
+  flow (keeps raw PIN/TOTP out of this codebase), which means **no silent token
+  refresh is possible** — daily re-authentication via the redirect flow is the only
+  renewal path. See [canonical-model-and-adapter-interface.md](canonical-model-and-adapter-interface.md).
 - 2FA is TOTP-based (authenticator app), confirmed.
+- **Error codes verified** at `smartapi.angelbroking.com/docs/Exceptions`: token/session
+  problems are `AG8001` (Invalid Token), `AG8002` (Token Expired), `AG8003` (Token
+  missing), `AB1010` (AMX Session Expired), `AB1011` (Client not login). No error code
+  corresponds to a rate limit — that's signalled by plain HTTP 403, per earlier
+  research, unconfirmed against a live response. No code corresponds to "market
+  closed" either. `AB1013`–`AB1016` (Order/Trade/Holding/Position not found) are
+  empty-result codes, not failures — a user with zero holdings gets `AB1015`, which is
+  the correct answer, not an error.
 
 ## Portfolio / read endpoints (what Phase 1 actually needs)
 
