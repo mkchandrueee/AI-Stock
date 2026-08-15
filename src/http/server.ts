@@ -17,6 +17,7 @@ import { ReconciliationService } from "../reconciliation/reconciliation-service.
 import { SessionStore } from "../vault/session-store.js";
 import { startReconciliationScheduler } from "../scheduler/reconciliation-scheduler.js";
 import { AuditLog, verifyAuditChain } from "../audit/audit-log.js";
+import { getAccountPortfolio, getUnifiedPortfolio } from "../portfolio/portfolio-service.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -115,6 +116,19 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
        from account order by created_at desc`,
     );
     return result.rows;
+  });
+
+  // Unified portfolio across all connected accounts (spec §15), with duplicate
+  // holdings aggregated (spec §17). No P&L/performance figures — see
+  // portfolio-service.ts's file header for why.
+  app.get("/portfolio", async () => {
+    return getUnifiedPortfolio(pool);
+  });
+
+  // Per-account portfolio (spec §16).
+  app.get("/accounts/:accountId/portfolio", async (request) => {
+    const { accountId } = request.params as { accountId: string };
+    return getAccountPortfolio(pool, accountId);
   });
 
   app.get("/accounts/:accountId/reconciliation-runs", async (request) => {
