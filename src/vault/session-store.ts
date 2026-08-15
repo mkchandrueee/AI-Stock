@@ -6,8 +6,15 @@
  * This is the "boundary" component named in auth-session-architecture.md: callers ask
  * for a session by accountId, they don't read raw storage. Nothing outside this file
  * should construct an OpenBao path or touch the KV API directly.
+ *
+ * Every operation logs to AuditLog itself, not the caller — CLAUDE.md rule 4 wants
+ * "automated redaction at the logging layer, not code review," and relying on every
+ * call site to remember to log a secret-adjacent operation is exactly the code-review
+ * dependence that line argues against. AuditLog's own redaction still strips anything
+ * secret-shaped from what gets logged here (only accountId and outcome, never a token).
  */
 import type { AuthSession } from "../core/broker-adapter.js";
+import type { AuditLog } from "../audit/audit-log.js";
 
 export interface SessionStoreConfig {
   baseUrl: string; // e.g. http://127.0.0.1:8200
@@ -15,7 +22,10 @@ export interface SessionStoreConfig {
 }
 
 export class SessionStore {
-  constructor(private readonly config: SessionStoreConfig) {}
+  constructor(
+    private readonly config: SessionStoreConfig,
+    private readonly auditLog: AuditLog,
+  ) {}
 
   async save(accountId: string, session: AuthSession): Promise<void> {
     const response = await fetch(this.pathFor(accountId), {
@@ -26,6 +36,7 @@ export class SessionStore {
     if (!response.ok) {
       throw new Error(`SessionStore.save failed: HTTP ${response.status}`);
     }
+    await this.auditLog.log("SESSION_SAVED", accountId, { expiresAt: session.expiresAt });
   }
 
   /** Returns null if no session exists OR if the stored session has passed its own
@@ -36,7 +47,10 @@ export class SessionStore {
       method: "GET",
       headers: this.headers(),
     });
-    if (response.status === 404) return null;
+    if (response.status === 404) {
+      await this.auditLog.log("SESSION_LOADED", accountId, { outcome: "NOT_FOUND" });
+      return null;
+    }
     if (!response.ok) {
       throw new Error(`SessionStore.load failed: HTTP ${response.status}`);
     }
@@ -45,13 +59,14 @@ export class SessionStore {
 
     if (new Date(session.expiresAt).getTime() <= Date.now()) {
       await this.delete(accountId);
+      await this.auditLog.log("SESSION_LOADED", accountId, { outcome: "EXPIRED", expiresAt: session.expiresAt });
       return null;
     }
+    await this.auditLog.log("SESSION_LOADED", accountId, { outcome: "FOUND", expiresAt: session.expiresAt });
     return session;
   }
 
-  /** For the Broker Connect Center's Disconnect action (spec §2) — no HTTP route
-   * calls this yet, but the store-level primitive exists. */
+  /** For the Broker Connect Center's Disconnect action (spec §2). */
   async delete(accountId: string): Promise<void> {
     const response = await fetch(this.pathFor(accountId).replace("/data/", "/metadata/"), {
       method: "DELETE",
@@ -60,6 +75,7 @@ export class SessionStore {
     if (!response.ok && response.status !== 404) {
       throw new Error(`SessionStore.delete failed: HTTP ${response.status}`);
     }
+    await this.auditLog.log("SESSION_DELETED", accountId, {});
   }
 
   private pathFor(accountId: string): string {

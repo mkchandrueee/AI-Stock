@@ -16,6 +16,7 @@ import { PostgresInstrumentResolver } from "../security-master/postgres-instrume
 import { ReconciliationService } from "../reconciliation/reconciliation-service.js";
 import { SessionStore } from "../vault/session-store.js";
 import { startReconciliationScheduler } from "../scheduler/reconciliation-scheduler.js";
+import { AuditLog, verifyAuditChain } from "../audit/audit-log.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -29,7 +30,8 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     instrumentResolver: resolver,
   });
   const reconciliationService = new ReconciliationService(pool, adapter);
-  const sessionStore = new SessionStore(config.openBao);
+  const auditLog = new AuditLog(pool);
+  const sessionStore = new SessionStore(config.openBao, auditLog);
 
   const app = Fastify({ logger: true });
 
@@ -81,6 +83,10 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     );
     const accountId = upserted.rows[0]!.account_id;
 
+    await auditLog.log(isReconnect ? "ACCOUNT_RECONNECTED" : "ACCOUNT_CONNECTED", accountId, {
+      broker: profile.brokerId,
+      brokerAccountRef: profile.brokerAccountRef,
+    });
     await sessionStore.save(accountId, session);
     const result = await reconciliationService.reconcile(
       session,
@@ -120,6 +126,23 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
       [accountId],
     );
     return runs.rows;
+  });
+
+  app.get("/accounts/:accountId/audit-log", async (request) => {
+    const { accountId } = request.params as { accountId: string };
+    const entries = await pool.query(
+      `select audit_log_id, event_type, details, created_at
+       from audit_log where account_id = $1
+       order by audit_log_id desc limit 50`,
+      [accountId],
+    );
+    return entries.rows;
+  });
+
+  // Recomputes the hash chain from stored content — detects tampering, doesn't
+  // prevent it (see migrations/0004_audit_log.sql on DB-level permission gaps).
+  app.get("/audit-log/verify", async () => {
+    return verifyAuditChain(pool);
   });
 
   app.addHook("onClose", async () => {
