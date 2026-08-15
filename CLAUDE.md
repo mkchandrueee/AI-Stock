@@ -89,10 +89,12 @@ These come from the spec and are not subject to convenience.
 
 ## Stack
 
-<!-- Fill in once decided. Leave blank rather than guessing. -->
-- Language / runtime:
-- Database:
-- Broker (Phase 1):
+- Language / runtime: Node.js / TypeScript
+- Database: Postgres + TimescaleDB extension for time-series; audit/consent ledger as a
+  hash-chained append-only Postgres table (spec §93.3, §43)
+- Broker (Phase 1): Angel One (SmartAPI) — capability coverage, order types, WebSocket depth,
+  and rate limits are UNVERIFIED and require the full broker-adapter verification pass before
+  any adapter code is written (spec §1, §52)
 
 ## Commands
 
