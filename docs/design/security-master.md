@@ -1,11 +1,15 @@
 # Security Master — design (spec §18)
 
-Status: **Implemented as a migration** — [`migrations/0001_security_master.sql`](../../migrations/0001_security_master.sql)
-— and a resolver — [`src/security-master/postgres-instrument-resolver.ts`](../../src/security-master/postgres-instrument-resolver.ts).
-**Untested against a live database** — no Postgres instance is available in this
-environment; the migration has been reviewed by hand against this doc and the verified
-Angel One field shapes, not executed. Type-checks clean against
-`src/core/instrument-resolver.ts`.
+Status: **Verified end-to-end against a real PostgreSQL 18 instance and the real Angel
+One instrument dump**, 2026-08-15. Migration
+[`migrations/0001_security_master.sql`](../../migrations/0001_security_master.sql)
+applies cleanly. Full ingestion of all 155,399 dump rows completed in ~195s: 98,851
+instruments/versions/mappings created, 56,547 rows correctly skipped (out-of-scope
+exchanges + unclassifiable rows), zero silent data corruption. Re-running the same
+ingestion is fully idempotent (confirmed: zero new rows on a second pass over an
+already-ingested subset). Resolution by broker token and by (exchange, tradingSymbol)
+both confirmed to reach the same `instrument_id`; resolving a nonexistent instrument
+correctly returns the not-found result rather than throwing.
 
 ## Why three tables, not one
 
@@ -151,13 +155,40 @@ for the implementation this fed into.
   with a non-positive lot size. Re-running after the fix: 98,852 rows classified
   (22,690 equity, 74,870 options, 1,292 futures), zero anomalies.
 
+## Update from running the full ingestion against a real database
+
+**Angel One's own instrument dump has a genuine token collision:** `broker_instrument_token
+"1"` is assigned to two entirely different instruments — `GOLDSTAR-SM` (lot size 11250)
+and `BSX` (lot size 1) — both NSE equities in the same dump. The first version of the
+ingestion job didn't catch this: since both rows share a token, the second one looked
+exactly like a legitimate revision of the first (same shape as a lot-size change), so it
+silently closed out `GOLDSTAR-SM`'s version and opened one for `BSX` under the *same*
+`instrument_id` — quietly merging two unrelated securities into one canonical identity.
+This is exactly the "never silently overwrite, surface it" failure mode `CLAUDE.md`
+non-negotiable rule 5 exists to prevent, just encountered in ingestion rather than
+reconciliation.
+
+Fixed by tracking tokens seen within a single ingestion run: if the same token appears
+twice in one run with a different trading symbol, the second occurrence is treated as a
+conflict, left unprocessed, and reported in `IngestionSummary.tokenConflicts` — never
+silently folded into the first instrument's identity. Confirmed after the fix:
+`GOLDSTAR-SM` keeps a single, untouched version row; `BSX` doesn't appear in the
+Security Master at all, and the conflict is visible in the run summary rather than
+buried. See `ingestRows` in
+[`angel-one-instrument-ingestion.ts`](../../src/security-master/angel-one-instrument-ingestion.ts).
+
+Whether this reflects a real Angel One data error, an instrument that was delisted and
+had its token reassigned within the same daily snapshot, or something else — not
+determined. Worth a look before deciding what a *recurring* daily ingestion should do
+with a persistent conflict like this (today it's silently skipped every run, which is
+safe but not necessarily the final answer for cross-day conflicts).
+
 ## Explicitly not decided here
 
 - Whether `instrument_type` needs `INDEX` in Phase 1 (depends on whether Angel One's
   positions/holdings responses ever reference an index directly, e.g. for margin/benchmark
   display) — unverified.
-- The daily instrument-master ingestion job itself (the thing that calls
-  `OpenAPIScripMaster.json` and writes `instrument`/`instrument_version` rows) — the
-  migration and resolver exist; nothing populates the tables yet.
-- Running the migration against a real database — no Postgres instance exists in this
-  environment to verify it against.
+- What should happen when a token conflict persists or changes across daily runs (today:
+  silently skipped every time, which is safe but unexamined for the multi-day case).
+- Scheduling/orchestration for the daily ingestion job — it exists as a callable
+  function, not a cron job or worker.

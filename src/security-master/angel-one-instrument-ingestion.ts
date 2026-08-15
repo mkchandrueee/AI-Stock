@@ -49,7 +49,7 @@ const DERIVATIVE_EXCHANGES = new Set(["NFO", "BFO"]);
 const FUTURES_TYPES = new Set(["FUTSTK", "FUTIDX"]);
 const OPTIONS_TYPES = new Set(["OPTSTK", "OPTIDX"]);
 
-interface AngelOneScripMasterRow {
+export interface AngelOneScripMasterRow {
   token: string;
   symbol: string;
   name: string;
@@ -166,6 +166,12 @@ export interface IngestionSummary {
   instrumentsCreated: number;
   versionsCreated: number;
   mappingsCreated: number;
+  /** Same broker_instrument_token appeared twice in one run with a different trading
+   * symbol — a real data-quality issue found in Angel One's live dump (token "1" is
+   * simultaneously "GOLDSTAR-SM" and "BSX"), not a hypothetical. The second occurrence
+   * is left unprocessed rather than silently merged into the first's identity — see
+   * ingestRows. */
+  tokenConflicts: { token: string; firstSymbol: string; conflictingSymbol: string }[];
 }
 
 export async function fetchScripMaster(): Promise<AngelOneScripMasterRow[]> {
@@ -185,9 +191,14 @@ export async function fetchScripMaster(): Promise<AngelOneScripMasterRow[]> {
  * - Otherwise create a new `instrument` row.
  * - Only writes a new `instrument_version` row if the versioned attributes actually
  *   changed from the current one — not on every run.
+ *
+ * Separated from fetchScripMaster so this can be exercised against a subset of rows
+ * without a network call — e.g. for testing, or for chunked/resumable runs.
  */
-export async function ingestScripMaster(pool: Pool): Promise<IngestionSummary> {
-  const rows = await fetchScripMaster();
+export async function ingestRows(
+  pool: Pool,
+  rows: AngelOneScripMasterRow[],
+): Promise<IngestionSummary> {
   const summary: IngestionSummary = {
     totalRows: rows.length,
     classified: 0,
@@ -195,7 +206,13 @@ export async function ingestScripMaster(pool: Pool): Promise<IngestionSummary> {
     instrumentsCreated: 0,
     versionsCreated: 0,
     mappingsCreated: 0,
+    tokenConflicts: [],
   };
+  // Tracks tokens seen THIS run, to distinguish "this instrument's attributes changed"
+  // from "this token was reused for a completely different instrument within the same
+  // dump" — the two look identical to a naive existing-mapping lookup, but only the
+  // first is a legitimate version revision.
+  const seenTokensThisRun = new Map<string, string>();
 
   for (const row of rows) {
     const classified = classifyRow(row);
@@ -203,6 +220,17 @@ export async function ingestScripMaster(pool: Pool): Promise<IngestionSummary> {
       summary.skipped++;
       continue;
     }
+
+    const priorSymbolThisRun = seenTokensThisRun.get(classified.brokerInstrumentToken);
+    if (priorSymbolThisRun !== undefined && priorSymbolThisRun !== classified.tradingSymbol) {
+      summary.tokenConflicts.push({
+        token: classified.brokerInstrumentToken,
+        firstSymbol: priorSymbolThisRun,
+        conflictingSymbol: classified.tradingSymbol,
+      });
+      continue;
+    }
+    seenTokensThisRun.set(classified.brokerInstrumentToken, classified.tradingSymbol);
     summary.classified++;
 
     const client = await pool.connect();
@@ -305,4 +333,9 @@ export async function ingestScripMaster(pool: Pool): Promise<IngestionSummary> {
   }
 
   return summary;
+}
+
+export async function ingestScripMaster(pool: Pool): Promise<IngestionSummary> {
+  const rows = await fetchScripMaster();
+  return ingestRows(pool, rows);
 }
