@@ -13,6 +13,10 @@ export interface AppConfig {
     clientPublicIp: string;
     macAddress: string;
   };
+  openBao: {
+    baseUrl: string;
+    token: string;
+  };
 }
 
 function requireEnv(name: string): string {
@@ -38,6 +42,12 @@ export function loadConfig(): AppConfig {
       clientLocalIp: requireEnv("ANGEL_ONE_CLIENT_LOCAL_IP"),
       clientPublicIp: requireEnv("ANGEL_ONE_CLIENT_PUBLIC_IP"),
       macAddress: requireEnv("ANGEL_ONE_MAC_ADDRESS"),
+    },
+    openBao: {
+      baseUrl: requireEnv("OPENBAO_ADDR"),
+      // Root token in local dev mode. A real deployment needs a scoped policy +
+      // AppRole, not this — see docs/design/session-store.md.
+      token: requireEnv("OPENBAO_TOKEN"),
     },
   };
 }

@@ -1,27 +1,20 @@
 /**
  * HTTP layer: the login redirect callback and read endpoints for connected accounts /
- * reconciliation history. Deliberately does NOT persist the broker session
- * (jwtToken/feedToken) anywhere — see "Why no session storage" below. That means
- * there's currently no way to trigger a sync/reconciliation cycle *later*, only at the
- * moment a user completes the login redirect. A scheduled background job (the
- * "SCHEDULED" trigger reconciliation-service.ts already has a slot for) needs a way to
- * re-authenticate without a human clicking through Angel One's login page each time,
- * which Angel One's own token model doesn't provide for the redirect flow (see
- * angel-one-verification.md) — this is a real open problem, not solved here.
+ * reconciliation history.
  *
- * Why no session storage: CLAUDE.md rule 4 — "Secrets never touch application code...
- * Never in config, env files, source, DB columns, logs, traces, or error messages."
- * A broker JWT is exactly this kind of secret. Storing it — even encrypted — is a
- * secrets-management decision (key management, rotation, access control) that hasn't
- * been made for this project yet, and building one silently while "just adding an HTTP
- * layer" would be scope creep on a security-sensitive decision nobody's reviewed. So
- * for now: the session lives in memory for the lifetime of one request only.
+ * Session persistence (Option B, see docs/design/auth-session-architecture.md and
+ * docs/design/session-store.md): on successful login, the session is saved to
+ * SessionStore (OpenBao), bounded by its own expiry. This makes unattended
+ * reconciliation *possible* within a session's remaining lifetime — it does not make
+ * it automatic. Nothing yet calls SessionStore.load() on a schedule; that's the next
+ * gap, not this one.
  */
 import Fastify from "fastify";
 import { Pool } from "pg";
 import { AngelOneAdapter } from "../brokers/angel-one/adapter.js";
 import { PostgresInstrumentResolver } from "../security-master/postgres-instrument-resolver.js";
 import { ReconciliationService } from "../reconciliation/reconciliation-service.js";
+import { SessionStore } from "../vault/session-store.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -35,6 +28,7 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     instrumentResolver: resolver,
   });
   const reconciliationService = new ReconciliationService(pool, adapter);
+  const sessionStore = new SessionStore(config.openBao);
 
   const app = Fastify({ logger: true });
 
@@ -77,7 +71,7 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     );
     const accountId = upserted.rows[0]!.account_id;
 
-    // Session is used here, in-memory, and then goes out of scope. Never stored.
+    await sessionStore.save(accountId, session);
     const result = await reconciliationService.reconcile(session, accountId, "MANUAL");
 
     return reply.send({
@@ -85,6 +79,14 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
       displayName: profile.displayName,
       reconciliation: { status: result.status, findingCount: result.findings.length },
     });
+  });
+
+  // Broker Connect Center's Disconnect action (spec §2) — deletes the stored session.
+  // Does not delete the account's synced data; that's a separate, larger decision.
+  app.delete("/accounts/:accountId/session", async (request, reply) => {
+    const { accountId } = request.params as { accountId: string };
+    await sessionStore.delete(accountId);
+    return reply.status(204).send();
   });
 
   app.get("/accounts", async () => {

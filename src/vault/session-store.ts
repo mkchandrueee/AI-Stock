@@ -1,0 +1,75 @@
+/**
+ * Persists broker sessions in OpenBao (KV v2), bounded by their own expiry — see
+ * docs/design/session-store.md for why KV v2 over Transit, and why expiry is enforced
+ * here rather than relied on as a native OpenBao TTL.
+ *
+ * This is the "boundary" component named in auth-session-architecture.md: callers ask
+ * for a session by accountId, they don't read raw storage. Nothing outside this file
+ * should construct an OpenBao path or touch the KV API directly.
+ */
+import type { AuthSession } from "../core/broker-adapter.js";
+
+export interface SessionStoreConfig {
+  baseUrl: string; // e.g. http://127.0.0.1:8200
+  token: string; // root token in dev; a scoped AppRole token in any real deployment
+}
+
+export class SessionStore {
+  constructor(private readonly config: SessionStoreConfig) {}
+
+  async save(accountId: string, session: AuthSession): Promise<void> {
+    const response = await fetch(this.pathFor(accountId), {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ data: session }),
+    });
+    if (!response.ok) {
+      throw new Error(`SessionStore.save failed: HTTP ${response.status}`);
+    }
+  }
+
+  /** Returns null if no session exists OR if the stored session has passed its own
+   * expiresAt — an expired session is treated as absent, not as stale data to hand
+   * back. Deletes the expired entry rather than leaving it to be found again later. */
+  async load(accountId: string): Promise<AuthSession | null> {
+    const response = await fetch(this.pathFor(accountId), {
+      method: "GET",
+      headers: this.headers(),
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      throw new Error(`SessionStore.load failed: HTTP ${response.status}`);
+    }
+    const body = (await response.json()) as { data: { data: AuthSession } };
+    const session = body.data.data;
+
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+      await this.delete(accountId);
+      return null;
+    }
+    return session;
+  }
+
+  /** For the Broker Connect Center's Disconnect action (spec §2) — no HTTP route
+   * calls this yet, but the store-level primitive exists. */
+  async delete(accountId: string): Promise<void> {
+    const response = await fetch(this.pathFor(accountId).replace("/data/", "/metadata/"), {
+      method: "DELETE",
+      headers: this.headers(),
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`SessionStore.delete failed: HTTP ${response.status}`);
+    }
+  }
+
+  private pathFor(accountId: string): string {
+    return `${this.config.baseUrl}/v1/secret/data/broker-sessions/${accountId}`;
+  }
+
+  private headers(): Record<string, string> {
+    return {
+      "X-Vault-Token": this.config.token,
+      "Content-Type": "application/json",
+    };
+  }
+}
