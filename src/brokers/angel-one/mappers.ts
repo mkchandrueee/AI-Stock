@@ -11,14 +11,14 @@ import type {
   OrderStatus,
   Position,
   Trade,
-} from "../../core/types";
+} from "../../core/types.js";
 import type {
   AngelOneHoldingRaw,
   AngelOneOrderRaw,
   AngelOnePositionRaw,
   AngelOneRmsRaw,
   AngelOneTradeRaw,
-} from "./raw-types";
+} from "./raw-types.js";
 
 /** Angel One types symboltoken inconsistently (string in some responses, number in
  * others, null on some order records) — always coerce to a canonical string. */

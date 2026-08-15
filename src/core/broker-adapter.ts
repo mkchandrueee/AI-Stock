@@ -13,7 +13,7 @@ import type {
   Order,
   Position,
   Trade,
-} from "./types";
+} from "./types.js";
 
 /** Full capability vocabulary from spec §1/§5 — not just what Phase 1 uses, so a
  * second broker's adapter slots into the same matrix without redefinition. */

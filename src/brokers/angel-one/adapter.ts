@@ -24,7 +24,7 @@ import type {
   AuthSession,
   BrokerAdapter,
   BrokerAdapterMetadata,
-} from "../../core/broker-adapter";
+} from "../../core/broker-adapter.js";
 import type {
   Account,
   BrokerAdapterError,
@@ -33,8 +33,8 @@ import type {
   Order,
   Position,
   Trade,
-} from "../../core/types";
-import type { InstrumentResolver } from "../../core/instrument-resolver";
+} from "../../core/types.js";
+import type { InstrumentResolver } from "../../core/instrument-resolver.js";
 import {
   coerceSymbolToken,
   mapFunds,
@@ -42,7 +42,7 @@ import {
   mapOrder,
   mapPosition,
   mapTrade,
-} from "./mappers";
+} from "./mappers.js";
 import type {
   AngelOneApiResponse,
   AngelOneHoldingRaw,
@@ -50,7 +50,7 @@ import type {
   AngelOnePositionRaw,
   AngelOneRmsRaw,
   AngelOneTradeRaw,
-} from "./raw-types";
+} from "./raw-types.js";
 
 const API_ROOT = "https://apiconnect.angelone.in";
 const PUBLISHER_LOGIN_ROOT = "https://smartapi.angelone.in/publisher-login";
@@ -332,7 +332,7 @@ export class AngelOneAdapter implements BrokerAdapter {
   ): Promise<AdapterResult<T>> {
     let response: Response;
     try {
-      response = await fetch(`${API_ROOT}${path}`, {
+      const init: RequestInit = {
         method,
         headers: {
           Authorization: `Bearer ${session.jwtToken}`,
@@ -345,8 +345,9 @@ export class AngelOneAdapter implements BrokerAdapter {
           "X-MACAddress": this.config.macAddress,
           "X-PrivateKey": this.config.apiKey,
         },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      };
+      if (body) init.body = JSON.stringify(body);
+      response = await fetch(`${API_ROOT}${path}`, init);
     } catch {
       return { ok: false, error: { kind: "NETWORK_TIMEOUT" } };
     }

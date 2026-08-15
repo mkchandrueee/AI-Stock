@@ -3,3 +3,5 @@
 *.pem
 *.key
 secrets/
+node_modules/
+dist/

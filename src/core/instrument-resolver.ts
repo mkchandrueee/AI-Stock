@@ -8,7 +8,7 @@
  * depend on this interface, not on that schema, so an adapter can be written and
  * reviewed before the Security Master is implemented.
  */
-import type { BrokerId, InstrumentId } from "./types";
+import type { BrokerId, InstrumentId } from "./types.js";
 
 /**
  * Either identifier may be the only one available, depending on which broker endpoint
