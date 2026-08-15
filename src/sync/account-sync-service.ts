@@ -15,9 +15,18 @@
  * "Never silently overwrite. A mismatch surfaces as RECONCILIATION_REQUIRED." So this
  * layer only ever records what it observed, stamped with `synced_at`; deciding what a
  * holding's absence from the latest sync *means* is reconciliation's job, not built yet.
+ *
+ * Holdings/orders/trades persistence is split from their fetch (persistX vs syncX)
+ * because ReconciliationService already fetches all three to compare against stored
+ * state — verified end-to-end testing caught the version where reconcile() then called
+ * syncHoldings/syncOrders/syncTrades, which fetched the same data from the broker a
+ * second time for no reason, doubling real API calls against endpoints whose rate
+ * limits are already 1 req/sec (see angel-one-verification.md). Positions/funds don't
+ * have this problem — nothing else fetches them first — so they stay fetch-and-persist.
  */
 import type { Pool } from "pg";
 import type { AuthSession, BrokerAdapter } from "../core/broker-adapter.js";
+import type { Holding, Order, Trade } from "../core/types.js";
 
 export type SyncResult =
   | { ok: true; count: number }
@@ -32,7 +41,11 @@ export class AccountSyncService {
   async syncHoldings(session: AuthSession, accountId: string): Promise<SyncResult> {
     const result = await this.adapter.getHoldings(session, accountId);
     if (!result.ok) return { ok: false, error: describeError(result.error) };
-    for (const h of result.value) {
+    return this.persistHoldings(result.value);
+  }
+
+  async persistHoldings(holdings: Holding[]): Promise<SyncResult> {
+    for (const h of holdings) {
       await this.pool.query(
         `insert into holding
            (account_id, instrument_id, quantity, t1_quantity, average_price,
@@ -55,7 +68,7 @@ export class AccountSyncService {
         ],
       );
     }
-    return { ok: true, count: result.value.length };
+    return { ok: true, count: holdings.length };
   }
 
   async syncPositions(session: AuthSession, accountId: string): Promise<SyncResult> {
@@ -100,7 +113,11 @@ export class AccountSyncService {
   async syncOrders(session: AuthSession, accountId: string): Promise<SyncResult> {
     const result = await this.adapter.getOrderBook(session, accountId);
     if (!result.ok) return { ok: false, error: describeError(result.error) };
-    for (const o of result.value) {
+    return this.persistOrders(result.value);
+  }
+
+  async persistOrders(orders: Order[]): Promise<SyncResult> {
+    for (const o of orders) {
       await this.pool.query(
         `insert into broker_order
            (account_id, broker_order_id, instrument_id, transaction_type, quantity,
@@ -124,7 +141,7 @@ export class AccountSyncService {
         ],
       );
     }
-    return { ok: true, count: result.value.length };
+    return { ok: true, count: orders.length };
   }
 
   /** A fill never changes once it exists, so this is the one table where "do nothing
@@ -132,7 +149,11 @@ export class AccountSyncService {
   async syncTrades(session: AuthSession, accountId: string): Promise<SyncResult> {
     const result = await this.adapter.getTradeBook(session, accountId);
     if (!result.ok) return { ok: false, error: describeError(result.error) };
-    for (const t of result.value) {
+    return this.persistTrades(result.value);
+  }
+
+  async persistTrades(trades: Trade[]): Promise<SyncResult> {
+    for (const t of trades) {
       await this.pool.query(
         `insert into trade
            (account_id, broker_trade_id, broker_order_id, instrument_id,
@@ -145,7 +166,7 @@ export class AccountSyncService {
         ],
       );
     }
-    return { ok: true, count: result.value.length };
+    return { ok: true, count: trades.length };
   }
 }
 

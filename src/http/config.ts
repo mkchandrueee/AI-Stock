@@ -17,6 +17,11 @@ export interface AppConfig {
     baseUrl: string;
     token: string;
   };
+  /** reconciliation.md says "runs on a schedule," not what the schedule is — this
+   * default (15 min) is a judgment call, not a spec quote. Tunable via env, not
+   * required, since getting it wrong isn't a correctness risk the way a missing
+   * secret would be. */
+  reconciliationIntervalMs: number;
 }
 
 function requireEnv(name: string): string {
@@ -49,5 +54,6 @@ export function loadConfig(): AppConfig {
       // AppRole, not this — see docs/design/session-store.md.
       token: requireEnv("OPENBAO_TOKEN"),
     },
+    reconciliationIntervalMs: Number(process.env["RECONCILIATION_INTERVAL_MS"] ?? "900000"),
   };
 }

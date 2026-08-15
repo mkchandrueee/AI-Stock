@@ -86,15 +86,18 @@ export class ReconciliationService {
     }
 
     // Clean: safe to write the fresh state now that it's been compared, not before.
+    // Reuses the data already fetched above rather than re-fetching from the broker —
+    // see the file header on AccountSyncService for why that matters.
     const syncService = new AccountSyncService(this.pool, this.adapter);
-    await syncService.syncHoldings(session, accountId);
-    await syncService.syncOrders(session, accountId);
-    await syncService.syncTrades(session, accountId);
+    await syncService.persistHoldings(freshHoldingsResult.value);
+    await syncService.persistOrders(freshOrdersResult.value);
+    await syncService.persistTrades(freshTradesResult.value);
     // Positions/funds are synced unconditionally here — they aren't part of this
     // reconciliation pass yet (reconcileHoldings/reconcileOrders/reconcileTrades only).
     // Positions have the same theoretical "disappearance is ambiguous" risk holdings
     // do; that reconciliation isn't built, which is a real gap, not an oversight to
-    // hide — see docs/design/reconciliation.md.
+    // hide — see docs/design/reconciliation.md. These two still fetch, since nothing
+    // else has already retrieved them.
     await syncService.syncPositions(session, accountId);
     await syncService.syncFunds(session, accountId);
 

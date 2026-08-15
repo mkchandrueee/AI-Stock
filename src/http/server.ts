@@ -4,10 +4,10 @@
  *
  * Session persistence (Option B, see docs/design/auth-session-architecture.md and
  * docs/design/session-store.md): on successful login, the session is saved to
- * SessionStore (OpenBao), bounded by its own expiry. This makes unattended
- * reconciliation *possible* within a session's remaining lifetime — it does not make
- * it automatic. Nothing yet calls SessionStore.load() on a schedule; that's the next
- * gap, not this one.
+ * SessionStore (OpenBao), bounded by its own expiry. reconciliation-scheduler.ts uses
+ * that to run reconciliation unattended, within whatever's left of a session's
+ * lifetime — started from main() below, not from buildServer(), since tests that build
+ * a server without listening shouldn't also spin up a background timer.
  */
 import Fastify from "fastify";
 import { Pool } from "pg";
@@ -15,6 +15,7 @@ import { AngelOneAdapter } from "../brokers/angel-one/adapter.js";
 import { PostgresInstrumentResolver } from "../security-master/postgres-instrument-resolver.js";
 import { ReconciliationService } from "../reconciliation/reconciliation-service.js";
 import { SessionStore } from "../vault/session-store.js";
+import { startReconciliationScheduler } from "../scheduler/reconciliation-scheduler.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -59,6 +60,15 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     }
     const profile = accountResult.value;
 
+    // Distinguishes first-time connection from reconnecting an existing account, so
+    // the reconciliation_run log actually reflects reconciliation.md's "runs on a
+    // schedule AND on reconnect" language rather than logging every login as MANUAL.
+    const existing = await pool.query<{ account_id: string }>(
+      `select account_id from account where broker = $1 and broker_account_ref = $2`,
+      [profile.brokerId, profile.brokerAccountRef],
+    );
+    const isReconnect = existing.rows.length > 0;
+
     const upserted = await pool.query<{ account_id: string }>(
       `insert into account (broker, broker_account_ref, display_name, exchanges, products)
        values ($1, $2, $3, $4, $5)
@@ -72,7 +82,11 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     const accountId = upserted.rows[0]!.account_id;
 
     await sessionStore.save(accountId, session);
-    const result = await reconciliationService.reconcile(session, accountId, "MANUAL");
+    const result = await reconciliationService.reconcile(
+      session,
+      accountId,
+      isReconnect ? "RECONNECT" : "MANUAL",
+    );
 
     return reply.send({
       accountId,
@@ -112,12 +126,21 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     await pool.end();
   });
 
-  return app;
+  return { app, pool, sessionStore, reconciliationService };
 }
 
 async function main() {
   const config = loadConfig();
-  const app = buildServer(config);
+  const { app, pool, sessionStore, reconciliationService } = buildServer(config);
+
+  const stopScheduler = startReconciliationScheduler(
+    { pool, sessionStore, reconciliationService },
+    config.reconciliationIntervalMs,
+  );
+  app.addHook("onClose", async () => {
+    stopScheduler();
+  });
+
   await app.listen({ port: config.port });
 }
 

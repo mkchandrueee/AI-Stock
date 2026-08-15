@@ -54,12 +54,18 @@ without a human present, **as long as the last-saved session hasn't hit its own 
 That's the actual, bounded win Option B promised — not indefinite automation, same-day
 automation after a login.
 
+## Update
+
+- **The scheduler is built** — see [`scheduler.md`](scheduler.md). `SessionStore` was
+  the thing making unattended reconciliation possible; `reconciliation-scheduler.ts` is
+  what actually calls it on a cadence now.
+- **Correction to this doc's original text:** it said no HTTP route called
+  `SessionStore.delete()` yet. That was wrong even at the time this doc was first
+  written — `DELETE /accounts/:accountId/session` was added in the same pass as
+  `SessionStore` itself. Fixing the record here rather than leaving a stale claim.
+
 ## Explicitly still not built
 
-- **The scheduler itself.** `SessionStore` makes unattended runs *possible* within a
-  session's remaining lifetime; nothing calls it on a cadence yet.
-- **`/connect/disconnect`** (spec §2's Broker Connect Center `[Disconnect]` action) —
-  `SessionStore.delete()` exists and works, but no HTTP route calls it yet.
 - **Production OpenBao deployment, scoped policies, AppRole auth** — everything here
   is verified against one local dev-mode instance whose own startup banner says not to
   use it in production.
