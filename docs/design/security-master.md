@@ -107,8 +107,8 @@ history, just start writing versioned rows from day one.
 
 - `broker_native_attributes` for Angel One is now known: `symboltoken` (Angel One's
   instrument identifier — observed as both string and numeric across different endpoints;
-  coerce to string canonically), `tradingsymbol`, `exch_seg`, `instrumenttype`
-  (`EQ`/`FUT`/`CE`/`PE`), `tick_size`, `is_cas_enabled`.
+  coerce to string canonically), `tradingsymbol`, `exch_seg`, `instrumenttype`,
+  `tick_size`, `is_cas_enabled`.
 - **`isin` cannot be bootstrapped from the instrument master dump** — Angel One's daily
   `OpenAPIScripMaster` dump has no ISIN column. ISIN is only present in the
   `getHolding`/`getAllHolding` response, per instrument, and only for instruments the
@@ -116,6 +116,40 @@ history, just start writing versioned rows from day one.
   `instrument` + `instrument_version` for the whole exchange universe with `isin` left
   null, and holdings sync backfills `isin` incrementally, per instrument, as holdings are
   observed — never all at once.
+
+## Update from actually downloading and inspecting the instrument master dump
+
+The dump is a public, unauthenticated URL, so it was pulled directly (155,399 rows,
+2026-08-15) rather than trusted from the docs' example — which turned out to matter:
+the docs example and the real file disagree on two load-bearing details. See
+[`src/security-master/angel-one-instrument-ingestion.ts`](../../src/security-master/angel-one-instrument-ingestion.ts)
+for the implementation this fed into.
+
+- **`exch_seg` is uppercase and matches `exchange` elsewhere** (`NSE`, `BSE`, `NFO`,
+  `BFO`, plus `MCX`/`CDS`/`NCDEX`/`NCO` which are out of Phase 1 scope). The docs'
+  example showed lowercase `"nse_cm"` — stale or wrong. Trusted the live data.
+- **`instrument_type` is nothing like the docs' claimed `EQ, FUT, CE, PE`.** Real
+  values: equities/ETFs/bonds are `""` (empty string — matching what
+  `getHolding`/`getPosition` actually return, not a literal `"EQ"`), and derivatives
+  use a much larger taxonomy (`FUTSTK`, `OPTIDX`, `OPTCUR`, `FUTIRC`, 20+ values total).
+  Only `FUTSTK`/`FUTIDX`/`OPTSTK`/`OPTIDX` on NFO/BFO are ingested for Phase 1.
+- **`strike` is the rupee value × 100** — confirmed against multiple option symbols
+  where the strike embedded in the symbol string matched `strike / 100` exactly
+  (e.g. token 100068 `DIVISLAB29SEP267200CE`, `strike: "720000.000000"` → 7200).
+  Not documented anywhere found; would have been a 100× pricing bug if missed.
+- **No `contract_multiplier` field exists in the dump.** Defaulted to 1 for every
+  instrument, which is a standard Indian-market convention (multiplier is folded into
+  lot size, unlike US-style options), not a guess at broker-specific data.
+- **`instrumenttype: ""` isn't purely "equity."** The same empty value also covers
+  Sovereign Gold Bonds and similar cash-market instruments (e.g. token 1004,
+  `679AP34-SG`) — nothing in the dump distinguishes them from equities. Flagged, not
+  solved: they get classified as `EQUITY` too.
+- **Running the classifier against all 155,399 real rows caught a real bug before any
+  database existed to catch it in production:** `MIDCPNIFTY` (an index reference row,
+  not a tradeable equity) has `instrumenttype: ""` on `NSE` — indistinguishable from a
+  real equity by that field — but `lotsize: "-1"`. The classifier now rejects any row
+  with a non-positive lot size. Re-running after the fix: 98,852 rows classified
+  (22,690 equity, 74,870 options, 1,292 futures), zero anomalies.
 
 ## Explicitly not decided here
 
