@@ -59,13 +59,24 @@ Against the real database:
   `UPDATE` (bypassing the application entirely) was correctly detected —
   `verifyAuditChain()` identified the exact row.
 
-## Explicitly not solved
+## Both gaps below are now closed
 
-- **No database-level append-only enforcement.** The table has no `UPDATE`/`DELETE`
-  restriction at the Postgres role/permission level — the tamper-evidence property
-  relies on the hash chain making tampering *detectable*, not on anything preventing
-  it. A real deployment needs a role that can `INSERT` but not `UPDATE`/`DELETE` on
-  this table; not built, since no role separation exists in this local-dev setup at all.
-- **No automated periodic verification.** `GET /audit-log/verify` exists and works, but
-  nothing calls it on a schedule — tampering would only be caught if someone thinks to
-  check.
+- **Database-level append-only enforcement**: see
+  [`migrations/0005_app_role.sql`](../../migrations/0005_app_role.sql) — the app now
+  connects as a least-privilege `app_user` role with only `SELECT`/`INSERT` on
+  `audit_log` (and the other genuinely append-only tables: `funds_snapshot`, `trade`,
+  `reconciliation_finding`). Verified directly: `app_user` can `INSERT`/`SELECT` on
+  `audit_log`, and a real Postgres permission error is thrown on `UPDATE`/`DELETE` —
+  the app itself is now physically incapable of rewriting its own audit history, not
+  just disciplined not to.
+- **Automated periodic verification**: see
+  [`scheduler.md`](scheduler.md#audit-chain-verification) —
+  `audit-verification-scheduler.ts` calls `verifyAuditChain()` on an interval and logs
+  loudly (not silently) if the chain is ever found broken. Verified end-to-end,
+  including a real tamper: with the app connected as the restricted `app_user`, a
+  *direct* admin-level `UPDATE` (simulating a DBA or compromised superuser credential
+  bypassing the application entirely — the only way tampering could still happen given
+  the role restriction above) was correctly detected on the next scheduled check.
+
+No alerting/paging exists yet — a real deployment needs the failure case to actually
+notify someone, not just print to stdout. Flagged, not solved.

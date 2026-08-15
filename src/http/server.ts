@@ -16,6 +16,7 @@ import { PostgresInstrumentResolver } from "../security-master/postgres-instrume
 import { ReconciliationService } from "../reconciliation/reconciliation-service.js";
 import { SessionStore } from "../vault/session-store.js";
 import { startReconciliationScheduler } from "../scheduler/reconciliation-scheduler.js";
+import { startAuditVerificationScheduler } from "../scheduler/audit-verification-scheduler.js";
 import { AuditLog, verifyAuditChain } from "../audit/audit-log.js";
 import { getAccountPortfolio, getUnifiedPortfolio } from "../portfolio/portfolio-service.js";
 import { loadConfig } from "./config.js";
@@ -170,12 +171,17 @@ async function main() {
   const config = loadConfig();
   const { app, pool, sessionStore, reconciliationService } = buildServer(config);
 
-  const stopScheduler = startReconciliationScheduler(
+  const stopReconciliationScheduler = startReconciliationScheduler(
     { pool, sessionStore, reconciliationService },
     config.reconciliationIntervalMs,
   );
+  const stopAuditVerificationScheduler = startAuditVerificationScheduler(
+    pool,
+    config.auditVerificationIntervalMs,
+  );
   app.addHook("onClose", async () => {
-    stopScheduler();
+    stopReconciliationScheduler();
+    stopAuditVerificationScheduler();
   });
 
   await app.listen({ port: config.port });

@@ -22,6 +22,10 @@ export interface AppConfig {
    * required, since getting it wrong isn't a correctness risk the way a missing
    * secret would be. */
   reconciliationIntervalMs: number;
+  /** Same judgment-call status as reconciliationIntervalMs — no spec number to quote.
+   * Longer default (1h) than reconciliation since this is a whole-table integrity
+   * scan, not a per-account business check. */
+  auditVerificationIntervalMs: number;
 }
 
 function requireEnv(name: string): string {
@@ -55,5 +59,6 @@ export function loadConfig(): AppConfig {
       token: requireEnv("OPENBAO_TOKEN"),
     },
     reconciliationIntervalMs: Number(process.env["RECONCILIATION_INTERVAL_MS"] ?? "900000"),
+    auditVerificationIntervalMs: Number(process.env["AUDIT_VERIFICATION_INTERVAL_MS"] ?? "3600000"),
   };
 }

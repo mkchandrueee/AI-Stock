@@ -1,7 +1,12 @@
-# Reconciliation scheduler
+# Schedulers
 
-Status: implemented, verified against real Postgres and OpenBao with a fixture
-adapter (no real Angel One session exists in this environment to test the live path).
+Status: implemented, verified against real Postgres and OpenBao with fixture data
+(no real Angel One session exists in this environment to test the live broker path).
+
+Two independent schedulers live under `src/scheduler/` — different scope, different
+cadence, started and stopped separately in `server.ts`'s `main()`.
+
+## Reconciliation scheduler
 
 Files: [`src/scheduler/reconciliation-scheduler.ts`](../../src/scheduler/reconciliation-scheduler.ts).
 
@@ -55,7 +60,7 @@ the real database and OpenBao instance:
 - Exactly one broker call per account per clean cycle after the fetch/persist split,
   down from two.
 
-## Still not built
+## Still not built (reconciliation scheduler)
 
 - Multi-instance safety — if this process ever runs more than one replica, nothing
   prevents two instances from reconciling the same account concurrently. Not a concern
@@ -63,3 +68,24 @@ the real database and OpenBao instance:
   scaling.
 - Backoff/retry policy for a broker call that fails mid-cycle — currently just logged
   and moved on to the next account; the failed account waits for the next scheduled tick.
+
+## Audit chain verification
+
+Files: [`src/scheduler/audit-verification-scheduler.ts`](../../src/scheduler/audit-verification-scheduler.ts).
+
+Closes the gap named in `audit-log.md`: `GET /audit-log/verify` existed but nothing
+called it automatically. This does, on an interval (default 1 hour — longer than
+reconciliation's default since it's a whole-table integrity scan, not a per-account
+check, tunable via `AUDIT_VERIFICATION_INTERVAL_MS`). On failure, logs loudly
+(`console.error`, not swallowed) with the exact row where the chain broke.
+
+Verified end-to-end, together with the same pass's `app_user` least-privilege role
+(`migrations/0005_app_role.sql`): with the app connected as the restricted role that
+can no longer `UPDATE`/`DELETE` `audit_log` itself, a *direct* admin-level `UPDATE`
+(simulating a DBA or compromised superuser credential — the only way tampering could
+still happen given the role restriction) was correctly caught on the next scheduled
+check. The two pieces work together: the role change makes the app itself incapable of
+tampering; the scheduler catches tampering from outside the app.
+
+No alerting/paging exists — a real deployment needs the failure case to notify someone,
+not just print to stdout.
