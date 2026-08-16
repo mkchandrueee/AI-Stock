@@ -211,7 +211,12 @@ export class AngelOneAdapter implements BrokerAdapter {
     if (!result.ok) return result;
     const holdings: Holding[] = [];
     const unresolved: string[] = [];
-    for (const raw of result.value) {
+    // Confirmed against a real account with zero holdings, 2026-08-16: Angel One
+    // returns status:true with data:null, not data:[] — a successful-but-empty
+    // response the docs don't distinguish from the array case. Same "not found means
+    // empty, not broken" principle as EMPTY_RESULT_CODES above, just for the shape
+    // that shows up when the response succeeds instead of erroring.
+    for (const raw of result.value ?? []) {
       const token = coerceSymbolToken(raw.symboltoken);
       const resolution = await this.config.instrumentResolver.resolve({
         broker: "ANGEL_ONE",
@@ -243,7 +248,8 @@ export class AngelOneAdapter implements BrokerAdapter {
     if (!result.ok) return result;
     const positions: Position[] = [];
     const unresolved: string[] = [];
-    for (const raw of result.value) {
+    // See the matching comment in getHoldings above — same status:true/data:null shape.
+    for (const raw of result.value ?? []) {
       const token = coerceSymbolToken(raw.symboltoken);
       const resolution = await this.config.instrumentResolver.resolve({
         broker: "ANGEL_ONE",
@@ -288,7 +294,8 @@ export class AngelOneAdapter implements BrokerAdapter {
     if (!result.ok) return result;
     const orders: Order[] = [];
     const unresolved: string[] = [];
-    for (const raw of result.value) {
+    // See the matching comment in getHoldings above — same status:true/data:null shape.
+    for (const raw of result.value ?? []) {
       const token = coerceSymbolToken(raw.symboltoken);
       // Order Book records can have a null symboltoken (seen in the docs' own
       // example response) — the resolver falls back to (exchange, tradingSymbol)
@@ -333,7 +340,8 @@ export class AngelOneAdapter implements BrokerAdapter {
     if (!result.ok) return result;
     const trades: Trade[] = [];
     const unresolved: string[] = [];
-    for (const raw of result.value) {
+    // See the matching comment in getHoldings above — same status:true/data:null shape.
+    for (const raw of result.value ?? []) {
       // No symboltoken on trade records at all (confirmed absent from the documented
       // shape) — always resolve by (exchange, tradingSymbol) here.
       const resolution = await this.config.instrumentResolver.resolve({

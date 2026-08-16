@@ -67,6 +67,15 @@ governor required by broker-adapters.md ("stricter than the broker's published l
 there's very little headroom to be stricter than 1 req/sec without polling less than once
 a second, which is already the ceiling.
 
+**Confirmed against a real account, 2026-08-16: a genuinely empty result comes back as
+`status:true, data:null`, not `data:[]`.** Not documented anywhere in the official docs —
+found by connecting a real account with zero holdings/positions/orders/trades and watching
+`AngelOneAdapter` crash on `for (const raw of result.value)` with `result.value` being
+`null`. Distinct from the `EMPTY_RESULT_CODES` case above (`AB1015` etc.), which is an
+explicit error-coded "not found" — this is a *successful* response that's just empty.
+Fixed in `getHoldings`/`getPositions`/`getOrderBook`/`getTradeBook` with `result.value ?? []`
+at the adapter boundary, so nothing downstream (reconciliation, sync) has to know about it.
+
 ## Instrument master (bootstraps the Security Master, spec §18)
 
 - `GET https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json`
