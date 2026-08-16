@@ -64,7 +64,10 @@ position — **Option B, analytics tool** (spec §94.2), the same position
 `IntradayScreener` holds at real scale, per `docs/design/gate-a-b-research-findings.md`
 — but that's this project's own analysis, not qualified regulatory review. Gate A
 stays formally **OPEN**, on the same footing as Gates B and C, until real legal/
-compliance review validates it. The OUT-of-scope list above is designed against
+compliance review validates it. **What that review actually requires — who to
+engage, realistic cost/timeline, the specific question to ask — is in
+`docs/design/gate-a-resolution-path.md`.** Not sent/engaged yet; same as Gate C,
+that's the owner's action. The OUT-of-scope list above is designed against
 this working position because designing against nothing isn't better — but it's a
 working position under active review, not a closed decision the way a technical
 architecture choice would be.
