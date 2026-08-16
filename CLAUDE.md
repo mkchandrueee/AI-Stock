@@ -109,24 +109,42 @@ review could still land on either.
 
 Do not design around an assumed outcome on any of the three.
 
-## Operating mode while Gates A/B/C are open (2026-08-16)
+## Operating mode while Gates A/B/C are open (updated 2026-08-16)
 
-This is a decision-gated project right now, not an open-ended build:
+Decision-gated, not stopped. **Only the AI/multi-user layer waits on the gates —
+everything gate-independent keeps moving.**
 
-- **Gate C outreach is prepared and ready for the owner to send.** Don't send it —
-  that's not something to do from inside this repo.
+- **Gate C outreach is prepared, questions plus confirmed destination
+  (`smartapi@angelone.in`) in `docs/design/gate-c-broker-outreach.md`.** Sending
+  it is the owner's action, not something to do from inside this repo. Priority:
+  send this one — it's the thing most fully in the owner's own control.
+- **Gate A has a ready professional-review package**:
+  `docs/design/gate-a-professional-review-package.md` (self-contained brief for
+  external counsel/compliance advisor — no repo context assumed) plus
+  `docs/design/gate-a-resolution-path.md` (who to engage, realistic cost/timeline).
+  Engaging someone is the owner's action.
+- **Gate B has a Data Source Matrix**: `docs/design/gate-b-data-source-matrix.md`
+  — narrows what a real vendor conversation would need to confirm, doesn't
+  replace one. No purchase made.
 - **Stop implementation work that depends on Gate C.** No multi-user broker
   architecture code, even scaffolding.
 - **Don't keep expanding the multi-user architecture spec while the answer is
   pending.** The blueprints that exist are enough to resume from; more design
   before the answer risks designing around an assumed outcome, the exact thing
   this file has said not to do since before Phase 1 started.
-- **Phase 1 stays stable.** Frozen means frozen — don't revisit it looking for
-  work to do.
-- **Parallel work is fine only where it's genuinely independent of Gate C** —
-  Gate A qualified regulatory review/research, Gate B data-vendor/licensing
-  research, documentation. Not live AI trading or recommendation implementation
-  under any framing.
+- **Phase 1 code stays stable.** Frozen means frozen — don't revisit it looking
+  for work to do. **One narrow, explicit exception**: re-running the exact same
+  disposable local verification test from `angel-one-live-verification.md` on an
+  actual NSE trading day, to confirm the historical-candle endpoint returns real
+  data (the original test ran on a non-trading day and got a correctly-empty
+  result — not a failure, just not yet confirmed positive). This is
+  re-verification using the already-approved protocol: a disposable local
+  script, run by the owner in their own terminal, credentials never entered
+  through chat — same as every prior live test. Not new Phase 1 development.
+  Nothing else about Phase 1 reopens.
+- **Parallel work is fine wherever it's genuinely independent of Gate C** —
+  Gate A/B research and documentation, the above verification item. Not live AI
+  trading or recommendation implementation under any framing.
 - **When an Angel One response arrives**, analyze it against the specific
   questions already in `docs/design/gate-c-broker-outreach.md` and record, for
   each one, whether the response confirms it, rejects it, or leaves it
