@@ -142,8 +142,8 @@ function renderHoldingsTable(holdings, { perAccount }) {
     return el(`<div class="empty-state">No holdings on record.</div>`);
   }
   const cols = perAccount
-    ? "<th>Symbol</th><th>Exchange</th><th>Type</th><th>Qty</th><th>Avg price</th><th>Current value</th>"
-    : "<th>Symbol</th><th>Exchange</th><th>Type</th><th>Total qty</th><th>Current value</th><th>Invested value</th><th>Accounts</th>";
+    ? "<th>Symbol</th><th>Exchange</th><th>Type</th><th>Qty</th><th>Avg price</th><th>Current value</th><th>Weight</th>"
+    : "<th>Symbol</th><th>Exchange</th><th>Type</th><th>Total qty</th><th>Current value</th><th>Invested value</th><th>Weight</th><th>Accounts</th>";
   const table = el(`<table><thead><tr>${cols}</tr></thead><tbody></tbody></table>`);
   const tbody = table.querySelector("tbody");
   for (const h of holdings) {
@@ -155,6 +155,7 @@ function renderHoldingsTable(holdings, { perAccount }) {
           <td>${h.quantity}</td>
           <td>${formatInr(h.averagePrice)}</td>
           <td>${formatInr(h.currentValue)}</td>
+          <td>${h.weightPct.toFixed(1)}%</td>
         </tr>`)
       : el(`<tr>
           <td>${escapeHtml(h.tradingSymbol)}</td>
@@ -163,11 +164,31 @@ function renderHoldingsTable(holdings, { perAccount }) {
           <td>${h.totalQuantity}</td>
           <td>${formatInr(h.totalCurrentValue)}</td>
           <td>${formatInr(h.totalInvestedValue)}</td>
+          <td>${h.weightPct.toFixed(1)}%</td>
           <td>${h.byAccount.map((a) => escapeHtml(a.accountDisplayName)).join(", ")}</td>
         </tr>`);
     tbody.appendChild(row);
   }
   return table;
+}
+
+/** Horizontal-bar breakdown for an ExposureBucket[] (asset-type/broker exposure) —
+ * pure weight display, no return/performance figure involved. */
+function renderExposure(buckets) {
+  if (buckets.length === 0) {
+    return el(`<div class="empty-state">No data.</div>`);
+  }
+  const wrapper = el(`<div class="exposure-list"></div>`);
+  for (const b of buckets) {
+    wrapper.appendChild(el(`
+      <div class="exposure-row">
+        <div class="exposure-label">${escapeHtml(b.label)}</div>
+        <div class="exposure-bar-track"><div class="exposure-bar-fill" style="width:${b.pct}%"></div></div>
+        <div class="exposure-pct">${b.pct.toFixed(1)}%</div>
+      </div>
+    `));
+  }
+  return wrapper;
 }
 
 function renderSummaryCards(container, cards) {
@@ -204,6 +225,15 @@ async function loadUnifiedPortfolio() {
 
   holdingsContainer.innerHTML = "";
   holdingsContainer.appendChild(renderHoldingsTable(portfolio.holdings, { perAccount: false }));
+
+  const exposureContainer = document.getElementById("portfolio-exposure");
+  exposureContainer.innerHTML = "";
+  const assetTypeBlock = el(`<div class="sub-block"><h3>Asset type exposure</h3></div>`);
+  assetTypeBlock.appendChild(renderExposure(portfolio.assetTypeExposure));
+  const brokerBlock = el(`<div class="sub-block"><h3>Broker exposure</h3></div>`);
+  brokerBlock.appendChild(renderExposure(portfolio.brokerExposure));
+  exposureContainer.appendChild(assetTypeBlock);
+  exposureContainer.appendChild(brokerBlock);
 }
 
 // ---- Account detail (portfolio, reconciliation runs, audit log) ----
@@ -246,6 +276,9 @@ async function openAccountDetail(account) {
     ]);
     portfolioSlot.appendChild(cards);
     portfolioSlot.appendChild(renderHoldingsTable(portfolio.holdings, { perAccount: true }));
+    const assetTypeBlock = el(`<div class="sub-block"><h3>Asset type exposure</h3></div>`);
+    assetTypeBlock.appendChild(renderExposure(portfolio.assetTypeExposure));
+    portfolioSlot.appendChild(assetTypeBlock);
   } catch (err) {
     renderError(portfolioSlot, err.message);
   }
