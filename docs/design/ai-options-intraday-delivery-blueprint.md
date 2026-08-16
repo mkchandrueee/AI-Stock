@@ -1,6 +1,22 @@
 # AI-powered Options + Intraday + Delivery analysis — architecture blueprint
 
-## STATUS: BLUEPRINT ONLY. NOT FOR IMPLEMENTATION.
+## SUPERSEDED (2026-08-16) — kept as a historical record, not a current design
+
+`CLAUDE.md` decided Gate A as **Option B (analytics tool)** — no recommendations,
+no signals, no performance claims, ever, under this position. Everything below
+assumes the fuller signal-generation architecture from spec Parts B/C (strategy
+certification, the Signal object, AI action tiers T2/PROPOSE and T3/STAGE), which
+that decision forecloses. This document is **not deleted**, on the same principle
+this project has applied to broker-native data and audit history throughout: never
+silently discard prior work. It's preserved in case the regulatory position is ever
+deliberately revisited — the spec itself is explicit that would mean rebuilding the
+parts of the product that matter most, not a small toggle.
+
+**The current, buildable blueprint for this feature area is
+[`ai-analytics-options-intraday-delivery.md`](ai-analytics-options-intraday-delivery.md)**
+— scoped to what Option B actually permits (T0/T1: read and explain, never propose).
+
+## STATUS (original, pre-decision): BLUEPRINT ONLY. NOT FOR IMPLEMENTATION.
 
 This document is architecture and contracts for review, per the master spec's own
 instruction: *"Produce architecture, contracts and matrices for review and then

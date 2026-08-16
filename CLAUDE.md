@@ -75,9 +75,11 @@ current scope. What remains buildable under this position: T0 (READ) and T1
 "AI-powered analysis" under this decision means the AI can explain and analyze; it
 cannot suggest, propose, or score a trade idea.
 
-`docs/design/ai-options-intraday-delivery-blueprint.md` was written before this
-decision and assumes the fuller signal-generation architecture (Parts B/C of the
-spec) — it needs revisiting against this decision, not treated as still current.
+The current blueprint for this feature area, scoped to what this decision actually
+permits (T0 read + T1 analyze only — explanation, never recommendation), is
+`docs/design/ai-analytics-options-intraday-delivery.md`. The original
+`docs/design/ai-options-intraday-delivery-blueprint.md` is superseded and kept only
+as a historical record of pre-decision thinking — not a current design.
 
 Considered and set aside: **Option C — registered Research Analyst** (Sensibull's
 actual position, confirmed viable at real scale, but with the NISM certification,
