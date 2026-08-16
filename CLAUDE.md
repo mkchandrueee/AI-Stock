@@ -86,6 +86,12 @@ read + T1 analyze only — explanation, never recommendation), is
 record, not a current design — not because Option B is certain, but because it's
 still the more likely direction pending review.
 
+A narrower, deeper pass on holding-level/portfolio-composition AI capabilities
+specifically (spec §19–22) is `docs/design/ai-holding-analysis-blueprint.md` —
+it also surfaces an unresolved contradiction between spec §19/§15 (which want
+return/performance figures) and this file's own permanent "no returns, ever"
+rule, not yet decided.
+
 Considered and not currently favored: **Option C — registered Research Analyst**
 (Sensibull's actual position, confirmed viable at real scale, but with real cost:
 NISM certification, principal-analyst appointment, now-live PaRRVA obligations) and
