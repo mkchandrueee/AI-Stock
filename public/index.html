@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portfolio Platform — Phase 1</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Portfolio Platform</h1>
+    <div id="system-status" class="status-badges">
+      <span class="badge badge-loading" id="badge-health">API: checking…</span>
+      <span class="badge badge-loading" id="badge-audit">Audit chain: checking…</span>
+    </div>
+  </header>
+
+  <main>
+    <section id="accounts-section">
+      <div class="section-header">
+        <h2>Connected accounts</h2>
+        <a href="/connect" class="button">Connect a broker account</a>
+      </div>
+      <div id="accounts-content">Loading…</div>
+    </section>
+
+    <section id="portfolio-section">
+      <h2>Portfolio — all accounts</h2>
+      <div id="portfolio-summary" class="summary-cards">Loading…</div>
+      <div id="portfolio-holdings"></div>
+    </section>
+
+    <section id="account-detail-section" hidden>
+      <div class="section-header">
+        <h2 id="account-detail-title">Account detail</h2>
+        <button class="button button-secondary" id="close-account-detail">Close</button>
+      </div>
+      <div id="account-detail-content">Loading…</div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

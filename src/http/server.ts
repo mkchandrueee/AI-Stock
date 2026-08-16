@@ -9,7 +9,10 @@
  * lifetime — started from main() below, not from buildServer(), since tests that build
  * a server without listening shouldn't also spin up a background timer.
  */
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import Fastify from "fastify";
+import fastifyStatic from "@fastify/static";
 import { Pool } from "pg";
 import { AngelOneAdapter } from "../brokers/angel-one/adapter.js";
 import { PostgresInstrumentResolver } from "../security-master/postgres-instrument-resolver.js";
@@ -36,6 +39,13 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
   const sessionStore = new SessionStore(config.openBao, auditLog);
 
   const app = Fastify({ logger: true });
+
+  // Read-only dashboard (public/) over the JSON endpoints below — no separate
+  // frontend server, no build step. Static routes are registered before the API
+  // routes are declared, but Fastify's router matches the more specific /health,
+  // /accounts, etc. paths first regardless of registration order.
+  const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "public");
+  app.register(fastifyStatic, { root: publicDir });
 
   app.get("/health", async () => {
     await pool.query("select 1");

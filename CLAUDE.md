@@ -202,4 +202,8 @@ These come from the spec and are not subject to convenience.
 
 ## Commands
 
-<!-- Add as they're established. -->
+- `npm run typecheck` — `tsc --noEmit`
+- `npm run build` — compiles `src/` to `dist/`
+- `npm start` — runs `dist/http/server.js` with `.env` loaded; dashboard at
+  `http://localhost:$PORT` (static files in `public/`, served by the same Fastify
+  app as the JSON API — see `src/http/server.ts`)

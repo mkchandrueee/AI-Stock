@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "trading-platform",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file=.env", "dist/http/server.js"],
+      "port": 3000
+    }
+  ]
+}
