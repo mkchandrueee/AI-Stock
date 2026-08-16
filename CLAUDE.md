@@ -25,9 +25,10 @@ haven't been pointed at it.
 
 ## Phase 1 scope — OUT. Do not build, scaffold, stub, or "prepare for" these.
 
-Marked below where the regulatory decision makes the boundary **permanent** (never, under
-this position, not just "not yet") versus still just a **Phase 1 sequencing** boundary
-(legitimate later, once Phase 1 ships).
+Marked below where the current regulatory working position makes the boundary **permanent**
+(never, under this position, not just "not yet") versus still just a **Phase 1 sequencing**
+boundary (legitimate later, once Phase 1 ships). See the Gate A section below — this working
+position is informed, not yet decided.
 
 - **Order placement of any kind.** *(Phase 1 sequencing — Option B explicitly permits
   "execution convenience," i.e. user-initiated order placement with no AI proposal
@@ -51,60 +52,82 @@ this position, not just "not yet") versus still just a **Phase 1 sequencing** bo
 
 If a task seems to require something on this list, stop and ask — for the permanent items,
 the answer is that the task is out of scope by design, not misscoped; for the sequencing
-items, the answer is usually "not yet," not "never."
+items, the answer is usually "not yet," not "never." **"Permanent" below means "permanent
+under the current working position" — see the correction just below. It constrains design
+now; it isn't yet backed by qualified legal/compliance review.**
 
-## Regulatory position — DECIDED (2026-08-16)
+## Gate A (regulatory position) — corrected: working position, not decided
 
-**Option B — Analytics tool** (spec §94.2), the same position `IntradayScreener`
-holds at real scale (~900k users), confirmed still viable as of
-`docs/design/gate-a-b-research-findings.md`.
+**2026-08-16 correction, from the owner, and it matters:** this was recorded as
+"DECIDED." It isn't. Research and reasoning in this repo produced a working
+position — **Option B, analytics tool** (spec §94.2), the same position
+`IntradayScreener` holds at real scale, per `docs/design/gate-a-b-research-findings.md`
+— but that's this project's own analysis, not qualified regulatory review. Gate A
+stays formally **OPEN**, on the same footing as Gates B and C, until real legal/
+compliance review validates it. The OUT-of-scope list above is designed against
+this working position because designing against nothing isn't better — but it's a
+working position under active review, not a closed decision the way a technical
+architecture choice would be.
 
-**This is a structural decision, not a Phase 1 boundary — the spec's own words:**
-*"These are not points on a spectrum you can slide along later... B and C are
-different products with different data models, different UI copy, different
-obligations and different economics. Choosing between them after the codebase
-exists means rewriting the parts of it that matter most."*
+**What the working position implies, if it holds**: no recommendations, no
+signals, no performance claims. This is why spec Sections 56–65 (strategy
+certification, signal objects) and the AI action catalogue above T1 are treated as
+out of scope in this document — not because it's certain, but because designing
+for the more permissive reading first and discovering it doesn't hold would cost
+more than designing conservatively and loosening later.
 
-**Concrete, permanent consequence**: no recommendations, no signals, no performance
-claims — ever, not just in Phase 1. This forecloses spec Sections 56–65 (strategy
-certification, signal objects, performance evidence bundle) and most of the AI
-action catalogue in §67/§74 — anything at tier T2 (PROPOSE) or above assumes a
-recommendation is being made, which this position rules out by choice, not by
-current scope. What remains buildable under this position: T0 (READ) and T1
-(ANALYZE, no side effects) — data, scanners, portfolio analytics, explanation.
-"AI-powered analysis" under this decision means the AI can explain and analyze; it
-cannot suggest, propose, or score a trade idea.
+The current blueprint for this feature area, scoped to the working position (T0
+read + T1 analyze only — explanation, never recommendation), is
+`docs/design/ai-analytics-options-intraday-delivery.md`. The original, fuller
+`docs/design/ai-options-intraday-delivery-blueprint.md` is kept as a historical
+record, not a current design — not because Option B is certain, but because it's
+still the more likely direction pending review.
 
-The current blueprint for this feature area, scoped to what this decision actually
-permits (T0 read + T1 analyze only — explanation, never recommendation), is
-`docs/design/ai-analytics-options-intraday-delivery.md`. The original
-`docs/design/ai-options-intraday-delivery-blueprint.md` is superseded and kept only
-as a historical record of pre-decision thinking — not a current design.
-
-Considered and set aside: **Option C — registered Research Analyst** (Sensibull's
-actual position, confirmed viable at real scale, but with the NISM certification,
-principal-analyst, and now-live PaRRVA obligations from the same research doc) and
+Considered and not currently favored: **Option C — registered Research Analyst**
+(Sensibull's actual position, confirmed viable at real scale, but with real cost:
+NISM certification, principal-analyst appointment, now-live PaRRVA obligations) and
 **Option A — personal tool only** (would leave the multi-user architecture already
-built — OpenBao, per-account isolation — as more than the product needs).
+built — OpenBao, per-account isolation — as more than the product needs). Qualified
+review could still land on either.
 
-## Other blocking gates — still not cleared
+## Gates B and C — open
 
 - **B. Research data licensing** — historical options data availability and cost
   (spec §93.2). Research done (`docs/design/gate-a-b-research-findings.md`):
   standard vendor licenses (TrueData, GDFL) are confirmed internal-use-only;
-  redistribution requires a separate, unpriced license. Not resolved — narrowed.
+  redistribution requires a separate, unpriced license. If the Option B working
+  position holds, this matters much less than it did — no backtest engine, no
+  certified strategy performance, which were the main things it was blocking.
 - **C. Broker commercial terms** — whether third-party multi-user integration is
-  permitted (spec §1). Still requires Angel One's own partnership/API team, not
-  documentation research. Unaffected by the regulatory-position decision above.
-  Outreach brief prepared and ready to send: `docs/design/gate-c-broker-outreach.md`
-  — the specific questions to ask, reflecting the decided (not the original fuller)
-  product scope. Not sent yet; sending it is the user's action, not this repo's.
+  permitted (spec §1). Requires Angel One's own team, not documentation research.
+  **Outreach prepared, questions and confirmed destination
+  (`smartapi@angelone.in`, from Angel One's own FAQ page) in
+  `docs/design/gate-c-broker-outreach.md`. Sending it is the owner's action.**
 
-Given the regulatory decision above, Gate B now matters less than it did — an
-analytics-tool position doesn't need a backtest engine or certified strategy
-performance claims, which were the main things Gate B's data licensing was blocking.
-Gate C remains a real, unresolved blocker for any multi-user product regardless of
-regulatory position. Do not design around an assumed outcome on Gate C.
+Do not design around an assumed outcome on any of the three.
+
+## Operating mode while Gates A/B/C are open (2026-08-16)
+
+This is a decision-gated project right now, not an open-ended build:
+
+- **Gate C outreach is prepared and ready for the owner to send.** Don't send it —
+  that's not something to do from inside this repo.
+- **Stop implementation work that depends on Gate C.** No multi-user broker
+  architecture code, even scaffolding.
+- **Don't keep expanding the multi-user architecture spec while the answer is
+  pending.** The blueprints that exist are enough to resume from; more design
+  before the answer risks designing around an assumed outcome, the exact thing
+  this file has said not to do since before Phase 1 started.
+- **Phase 1 stays stable.** Frozen means frozen — don't revisit it looking for
+  work to do.
+- **Parallel work is fine only where it's genuinely independent of Gate C** —
+  Gate A qualified regulatory review/research, Gate B data-vendor/licensing
+  research, documentation. Not live AI trading or recommendation implementation
+  under any framing.
+- **When an Angel One response arrives**, analyze it against the specific
+  questions already in `docs/design/gate-c-broker-outreach.md` and record, for
+  each one, whether the response confirms it, rejects it, or leaves it
+  unresolved — don't just summarize the reply, map it back to what was asked.
 
 ## Non-negotiable rules
 

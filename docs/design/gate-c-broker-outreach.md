@@ -23,8 +23,10 @@ exists to route around that with.
 
 ## Why this is worth having ready now, specifically
 
-The regulatory position is decided (Option B, analytics tool) and the AI blueprint
-is narrowed to match (T0/T1 — read and explain, no recommendations). That changes
+The working regulatory position is Option B, analytics tool — informed by research,
+not yet validated by qualified legal/compliance review (see `CLAUDE.md`'s Gate A
+section) — and the AI blueprint is narrowed to match (T0/T1 — read and explain, no
+recommendations). That changes
 *what* to ask Angel One relative to what spec §1 originally posed the question as —
 the original two-question framework assumed order execution was in view. It isn't,
 for the foreseeable scope. The questions below reflect the product as it's actually

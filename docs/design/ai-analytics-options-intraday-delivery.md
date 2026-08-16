@@ -1,10 +1,12 @@
 # AI-powered Options + Intraday + Delivery analysis — current blueprint
 
-## STATUS: blueprint for review. Supersedes the pre-decision version.
+## STATUS: blueprint for review. Supersedes the pre-working-position version.
 
-Scoped to what `CLAUDE.md`'s decided regulatory position (Option B — analytics
-tool, spec §94.2) actually permits: **T0 (read) and T1 (analyze, no side effects)
-only — spec §67/§74.** No signal, no recommendation, no proposal, no performance
+Scoped to what `CLAUDE.md`'s current regulatory *working position* (Option B —
+analytics tool, spec §94.2) actually permits: **T0 (read) and T1 (analyze, no side
+effects) only — spec §67/§74.** This is a working position pending qualified
+legal/compliance review, not a closed decision — see `CLAUDE.md`'s Gate A section.
+No signal, no recommendation, no proposal, no performance
 claim, anywhere in this document. Where the original blueprint
 (`ai-options-intraday-delivery-blueprint.md`) leaned on spec Parts B/C's
 certification/signal apparatus, this one deliberately doesn't — that apparatus only

@@ -1,5 +1,11 @@
 # Alignment check — post-regulatory-decision
 
+**Terminology correction, added same day:** this doc calls Gate A "decided." Later
+the same day, the owner corrected that — it's a working position informed by this
+project's own research, not a decision validated by qualified legal/compliance
+review. Gate A is formally open, same as B and C (see `CLAUDE.md`'s Gate A
+section). Everything else below still holds; only the "decided" framing was wrong.
+
 Status: verification only, no code or architecture changed. Checked against the
 re-attached master spec (confirmed byte-identical to `docs/MASTER-SPEC.md` — `diff`
 returned zero differences, so this isn't checking against a stale copy) and the

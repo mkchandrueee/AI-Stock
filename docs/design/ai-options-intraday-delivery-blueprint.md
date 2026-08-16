@@ -2,11 +2,13 @@
 
 ## SUPERSEDED (2026-08-16) — kept as a historical record, not a current design
 
-`CLAUDE.md` decided Gate A as **Option B (analytics tool)** — no recommendations,
-no signals, no performance claims, ever, under this position. Everything below
-assumes the fuller signal-generation architecture from spec Parts B/C (strategy
-certification, the Signal object, AI action tiers T2/PROPOSE and T3/STAGE), which
-that decision forecloses. This document is **not deleted**, on the same principle
+`CLAUDE.md` records Gate A's current *working position* as **Option B (analytics
+tool)** — no recommendations, no signals, no performance claims, under this
+position — informed by research, not yet validated by qualified legal/compliance
+review; Gate A remains formally open. Everything below assumes the fuller
+signal-generation architecture from spec Parts B/C (strategy certification, the
+Signal object, AI action tiers T2/PROPOSE and T3/STAGE), which that working
+position, if it holds, forecloses. This document is **not deleted**, on the same principle
 this project has applied to broker-native data and audit history throughout: never
 silently discard prior work. It's preserved in case the regulatory position is ever
 deliberately revisited — the spec itself is explicit that would mean rebuilding the
