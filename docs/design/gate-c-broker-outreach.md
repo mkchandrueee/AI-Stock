@@ -3,9 +3,23 @@
 Status: **preparation only.** Gate C (broker commercial terms) requires Angel One's
 own partnership/API team, not documentation research — this project has said so
 since the very first verification pass and it hasn't changed. This document doesn't
-resolve Gate C. It's the briefing and question set to make that outreach fast and
-precise when you're ready to send it, so the actual conversation with Angel One
-doesn't have to start from scratch or rediscover context this project already has.
+resolve Gate C. It's the briefing, question set, and destination to make that
+outreach fast and precise when you're ready to send it, so the actual conversation
+with Angel One doesn't have to start from scratch or rediscover context this
+project already has.
+
+## Where to send it
+
+**`smartapi@angelone.in`** — found directly on Angel One's own official SmartAPI
+FAQ page (`smartapi.angelbroking.com/faq`, "Contact Us" line), not a third-party
+guess or a forum post. This is the general SmartAPI contact channel, not
+necessarily a dedicated business-development inbox — no separate, publicly listed
+"API partnerships" email was found in this pass (Angel One's "Become a Partner"
+program that does turn up in search results is their client-referral/sub-broker
+program, an unrelated thing — worth not confusing the two). If this specific
+question needs escalation beyond general support, that's for Angel One to route
+internally once the inquiry is in; there's no evidence a more specific channel
+exists to route around that with.
 
 ## Why this is worth having ready now, specifically
 
