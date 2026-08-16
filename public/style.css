@@ -123,3 +123,19 @@ tr.clickable:hover { background: rgba(255,255,255,0.03); }
 .status-tag { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 4px; border: 1px solid var(--border); }
 .status-CLEAN { color: var(--ok); border-color: var(--ok); }
 .status-RECONCILIATION_REQUIRED { color: var(--warn); border-color: var(--warn); }
+.status-FAILED { color: var(--error); border-color: var(--error); }
+.status-IN_PROGRESS { color: var(--text-dim); }
+
+.refresh-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.refresh-button:hover { color: var(--text); border-color: var(--accent); }
+.refresh-button.spinning { animation: spin 0.6s linear; }
+@keyframes spin { to { transform: rotate(360deg); } }

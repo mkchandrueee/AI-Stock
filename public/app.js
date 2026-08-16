@@ -208,7 +208,10 @@ async function loadUnifiedPortfolio() {
 
 // ---- Account detail (portfolio, reconciliation runs, audit log) ----
 
+let currentDetailAccount = null;
+
 async function openAccountDetail(account) {
+  currentDetailAccount = account;
   const section = document.getElementById("account-detail-section");
   const title = document.getElementById("account-detail-title");
   const content = document.getElementById("account-detail-content");
@@ -310,7 +313,19 @@ async function openAccountDetail(account) {
 
 document.getElementById("close-account-detail").addEventListener("click", () => {
   document.getElementById("account-detail-section").hidden = true;
+  currentDetailAccount = null;
 });
+
+async function refreshAll() {
+  const button = document.getElementById("refresh-all");
+  button.classList.add("spinning");
+  const tasks = [loadSystemStatus(), loadAccounts(), loadUnifiedPortfolio()];
+  if (currentDetailAccount) tasks.push(openAccountDetail(currentDetailAccount));
+  await Promise.all(tasks);
+  setTimeout(() => button.classList.remove("spinning"), 600);
+}
+
+document.getElementById("refresh-all").addEventListener("click", refreshAll);
 
 loadSystemStatus();
 loadAccounts();
