@@ -96,6 +96,9 @@ built — OpenBao, per-account isolation — as more than the product needs).
 - **C. Broker commercial terms** — whether third-party multi-user integration is
   permitted (spec §1). Still requires Angel One's own partnership/API team, not
   documentation research. Unaffected by the regulatory-position decision above.
+  Outreach brief prepared and ready to send: `docs/design/gate-c-broker-outreach.md`
+  — the specific questions to ask, reflecting the decided (not the original fuller)
+  product scope. Not sent yet; sending it is the user's action, not this repo's.
 
 Given the regulatory decision above, Gate B now matters less than it did — an
 analytics-tool position doesn't need a backtest engine or certified strategy
