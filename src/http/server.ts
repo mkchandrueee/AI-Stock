@@ -31,6 +31,7 @@ import { getFindingCountsForAccount, getRunFindings } from "../reconciliation/fi
 import { ScreenerService, type ScreenerRunRequest } from "../analytics/screener-service.js";
 import { CandleCache, DEFAULT_EQUITY_SERIES } from "../analytics/candle-cache.js";
 import { CandleBackfillWorker } from "../analytics/candle-backfill.js";
+import { rankInstruments, type ScoreInput } from "../analytics/scoring.js";
 import type { CandleInterval } from "../core/types.js";
 import { loadConfig } from "./config.js";
 
@@ -262,6 +263,94 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     });
     if (!outcome.ok) return reply.status(400).send({ error: outcome.reason });
     return outcome;
+  });
+
+  /**
+   * Ranks the cached universe by composite technical conviction — the system picks
+   * and orders, rather than applying criteria the user typed. Built under the owner
+   * override recorded in CLAUDE.md (2026-08-29); every score carries its per-factor
+   * breakdown so nothing is an opaque number (spec §20).
+   */
+  app.post("/scanner/rank", async (request) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const interval = (body["interval"] as CandleInterval) ?? "ONE_DAY";
+    const bars = Number(body["barsPerInstrument"] ?? 120);
+    const limit = Number(body["limit"] ?? 50);
+    const minConviction = body["minConviction"] === undefined ? null : Number(body["minConviction"]);
+
+    const universe = await pool.query(
+      `select i.instrument_id, iv.trading_symbol, i.exchange
+       from instrument i
+       join instrument_version iv
+         on iv.instrument_id = i.instrument_id and iv.effective_to is null
+       where i.exchange = $1 and i.instrument_type = $2
+         and split_part(iv.trading_symbol, '-', 2) = any($3::text[])`,
+      [(body["exchange"] as string) ?? "NSE", (body["instrumentType"] as string) ?? "EQUITY", DEFAULT_EQUITY_SERIES],
+    );
+
+    const ids = universe.rows.map((r) => r.instrument_id as string);
+    const barsById = await candleCache.getBars(ids, interval, bars);
+
+    const inputs: ScoreInput[] = [];
+    for (const row of universe.rows) {
+      const series = barsById.get(row.instrument_id);
+      // Not yet cached => not in the scan at all. Reported via coverage below, not as
+      // a bottom-ranked entry, which would read as an assessed-and-rejected verdict.
+      if (!series || series.length === 0) continue;
+      inputs.push({
+        instrumentId: row.instrument_id,
+        tradingSymbol: row.trading_symbol,
+        exchange: row.exchange,
+        bars: series,
+      });
+    }
+
+    // Benchmark for relative strength. Looked up by symbol and read from the same
+    // cache; if it isn't cached yet the factor reports UNAVAILABLE rather than being
+    // silently dropped or faked.
+    // NIFTYBEES-EQ (the NIFTY 50 ETF), not NIFTY itself: verified 2026-08-29 that the
+    // index token returns status:true with zero bars on this app's entitlement, while
+    // the ETF returns real history. It's a proxy for the index, and labelled as one in
+    // the response rather than passed off as the index.
+    const benchmarkSymbol = (body["benchmarkSymbol"] as string) ?? "NIFTYBEES-EQ";
+    const benchRow = await pool.query<{ instrument_id: string }>(
+      `select i.instrument_id
+       from instrument i
+       join instrument_version iv
+         on iv.instrument_id = i.instrument_id and iv.effective_to is null
+       where iv.trading_symbol = $1 and i.exchange = $2
+       limit 1`,
+      [benchmarkSymbol, (body["exchange"] as string) ?? "NSE"],
+    );
+    let benchmarkBars: ScoreInput["bars"] | undefined;
+    const benchId = benchRow.rows[0]?.instrument_id;
+    if (benchId) {
+      const benchMap = await candleCache.getBars([benchId], interval, bars);
+      benchmarkBars = benchMap.get(benchId);
+    }
+
+    const { ranked, unscorable } = rankInstruments(inputs, benchmarkBars);
+    const filtered = minConviction === null ? ranked : ranked.filter((r) => r.conviction >= minConviction);
+    const summary = await candleCache.summary(interval);
+
+    return {
+      ranked: filtered.slice(0, limit),
+      unscorableCount: unscorable.length,
+      coverage: {
+        universeSize: ids.length,
+        scannedCount: inputs.length,
+        coveragePct: ids.length === 0 ? 0 : (inputs.length / ids.length) * 100,
+        cacheNewestTs: summary.newestTs,
+      },
+      // Named so nobody mistakes the ranked list for a complete market ranking when
+      // the cache only holds part of it.
+      totalRankedBeforeLimit: filtered.length,
+      benchmark: {
+        symbol: benchmarkSymbol,
+        barsAvailable: benchmarkBars?.length ?? 0,
+        note: "ETF proxy for the index — Angel One does not serve index candles to this app",
+      },
+    };
   });
 
   /** How much of the market the cache actually covers. */

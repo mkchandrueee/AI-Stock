@@ -99,6 +99,34 @@ NISM certification, principal-analyst appointment, now-live PaRRVA obligations) 
 built — OpenBao, per-account isolation — as more than the product needs). Qualified
 review could still land on either.
 
+## Owner override on scoring/ranking (2026-08-29) — explicit, not a Gate A resolution
+
+The owner has directed, repeatedly and after the constraint was stated each time,
+that the product must **find and rank stocks itself** rather than apply filters the
+user types. They supplied a live reference product (TradeNethram, `tradenethram.in`)
+which ships exactly this: a 0–100 conviction score, a WATCH/ACCUMULATE verdict, a
+ranked M-Score scanner over 210 F&O names with per-factor "why" breakdowns,
+PRIORITY/AVOID tags, and AI narrative (multibagger case, bear case, moat, key
+risks). It carries the disclaimer *"Deep AI research, revenue thesis tracking, and
+portfolio analysis. Not investment advice."*
+
+**This is an owner decision to build past the Option B working position, recorded as
+an override — it does NOT resolve Gate A.** Ranking, scoring and verdicts are T2
+under spec §67/§74, above the T0/T1 ceiling that position implies. Nothing about
+this override constitutes qualified regulatory review, and the distinction stays
+visible per the epistemics this file has applied throughout: an owner instructing a
+build is not a compliance sign-off. `gate-a-professional-review-package.md` should be
+updated to describe what is actually being built before it goes to any reviewer —
+sending it as currently written would misdescribe the product.
+
+That a comparable Indian product operates this way openly is evidence about what is
+commercially normal, not a legal conclusion: it may be registered, may be positioned
+differently, or may be carrying risk. Not knowable from screenshots.
+
+**What this override does and does not cover.** It covers scoring, ranking, verdicts
+and AI-written analysis of those. It does not extend to order placement, which stays
+out for the independent reason that Phase 1 has no execution path at all.
+
 ## Gates B and C — open
 
 - **B. Research data licensing** — historical options data availability and cost

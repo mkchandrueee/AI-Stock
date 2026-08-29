@@ -91,6 +91,12 @@ session; findings are empirical, not documentation-derived.
   stamped `00:00` and therefore falls before the requested start. Daily-interval
   requests must use `00:00` or they silently drop the first day — silently, since the
   response is a perfectly successful 200.
+- **Index candles are NOT served — silently.** The NIFTY index token (26000, NSE)
+  returns `status:true` with **zero bars**, while NIFTYBEES-EQ (the NIFTY 50 ETF,
+  token 10576) returns full history from the same call shape in the same run. So
+  index history is unavailable on this app's entitlement, and it fails as a
+  successful-looking empty response rather than an error. Anything needing a market
+  benchmark has to use a liquid ETF as a proxy and say so.
 - **No static IP, no order-scope permission needed** — consistent with every prior
   pass; this ran against the ordinary session the app's own login flow stores.
 

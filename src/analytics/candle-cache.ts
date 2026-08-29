@@ -119,6 +119,41 @@ export class CandleCache {
     return byInstrument;
   }
 
+  /** Full OHLCV bars, oldest-first per instrument — scoring needs volume and range,
+   * not just closes. Same single-query shape as getCloses. */
+  async getBars(
+    instrumentIds: string[],
+    interval: CandleInterval,
+    limitPerInstrument: number,
+  ): Promise<Map<string, { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[]>> {
+    const result = await this.pool.query(
+      `select instrument_id, ts, open, high, low, close, volume
+       from (
+         select instrument_id, ts, open, high, low, close, volume,
+                row_number() over (partition by instrument_id order by ts desc) as rn
+         from candle
+         where interval = $2 and instrument_id = any($1::uuid[])
+       ) ranked
+       where rn <= $3
+       order by instrument_id, ts asc`,
+      [instrumentIds, interval, limitPerInstrument],
+    );
+    const byInstrument = new Map<string, { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[]>();
+    for (const row of result.rows) {
+      const list = byInstrument.get(row.instrument_id) ?? [];
+      list.push({
+        timestamp: row.ts.toISOString(),
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+        volume: Number(row.volume),
+      });
+      byInstrument.set(row.instrument_id, list);
+    }
+    return byInstrument;
+  }
+
   async getCoverage(instrumentIds: string[], interval: CandleInterval): Promise<Map<string, CoverageRow>> {
     const result = await this.pool.query(
       `select instrument_id, interval, first_ts, last_ts, candle_count,
