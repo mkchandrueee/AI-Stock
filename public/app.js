@@ -172,6 +172,66 @@ function renderHoldingsTable(holdings, { perAccount }) {
   return table;
 }
 
+/**
+ * Renders rows into a table from a column spec: [header, valueFn]. Values are set
+ * via textContent, not interpolated HTML — broker-sourced strings (symbols, native
+ * status text) are untrusted input and must not be able to inject markup.
+ */
+function renderRowsTable(rows, columns, emptyMessage) {
+  if (rows.length === 0) {
+    return el(`<div class="empty-state">${escapeHtml(emptyMessage)}</div>`);
+  }
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const [header] of columns) {
+    const th = document.createElement("th");
+    th.textContent = header;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const [, valueOf] of columns) {
+      const td = document.createElement("td");
+      td.textContent = valueOf(row);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+/** Findings for one reconciliation run. REQUIRES_ATTENTION is visually distinct
+ * because those are the ones that blocked the write for that cycle. */
+function renderFindings(findings) {
+  if (findings.length === 0) {
+    return el(`<div class="empty-state">No findings recorded for this run.</div>`);
+  }
+  const list = el(`<div class="findings-list"></div>`);
+  for (const f of findings) {
+    const item = el(`
+      <div class="finding finding-${f.severity}">
+        <div class="finding-head">
+          <span class="finding-kind"></span>
+          <span class="finding-severity"></span>
+        </div>
+        <div class="finding-details"><code></code></div>
+      </div>
+    `);
+    item.querySelector(".finding-kind").textContent = f.kind;
+    item.querySelector(".finding-severity").textContent =
+      f.severity === "REQUIRES_ATTENTION" ? "needs attention" : "informational";
+    item.querySelector(".finding-details code").textContent = JSON.stringify(f.details);
+    list.appendChild(item);
+  }
+  return list;
+}
+
 /** Horizontal-bar breakdown for an ExposureBucket[] (asset-type/broker exposure) —
  * pure weight display, no return/performance figure involved. */
 function renderExposure(buckets) {
@@ -236,7 +296,19 @@ async function loadUnifiedPortfolio() {
   exposureContainer.appendChild(brokerBlock);
 }
 
-// ---- Account detail (portfolio, reconciliation runs, audit log) ----
+// ---- Account detail (portfolio, positions, orders, trades, reconciliation, audit) ----
+
+/** Fetches a URL and renders it into a slot, showing the error in place rather than
+ * failing the whole panel — one section's failure shouldn't blank the others. */
+async function loadInto(slot, url, render) {
+  try {
+    const data = await getJSON(url);
+    slot.innerHTML = "";
+    slot.appendChild(render(data));
+  } catch (err) {
+    renderError(slot, err.message);
+  }
+}
 
 let currentDetailAccount = null;
 
@@ -253,13 +325,22 @@ async function openAccountDetail(account) {
   content.innerHTML = "";
 
   const portfolioBlock = el(`<div class="sub-block"><h3>Portfolio</h3><div class="portfolio-slot">Loading…</div></div>`);
+  const positionsBlock = el(`<div class="sub-block"><h3>Positions</h3><div class="positions-slot">Loading…</div></div>`);
+  const ordersBlock = el(`<div class="sub-block"><h3>Orders</h3><div class="orders-slot">Loading…</div></div>`);
+  const tradesBlock = el(`<div class="sub-block"><h3>Trades</h3><div class="trades-slot">Loading…</div></div>`);
   const reconBlock = el(`<div class="sub-block"><h3>Reconciliation runs</h3><div class="recon-slot">Loading…</div></div>`);
   const auditBlock = el(`<div class="sub-block"><h3>Audit log</h3><div class="audit-slot">Loading…</div></div>`);
   content.appendChild(portfolioBlock);
+  content.appendChild(positionsBlock);
+  content.appendChild(ordersBlock);
+  content.appendChild(tradesBlock);
   content.appendChild(reconBlock);
   content.appendChild(auditBlock);
 
   const portfolioSlot = portfolioBlock.querySelector(".portfolio-slot");
+  const positionsSlot = positionsBlock.querySelector(".positions-slot");
+  const ordersSlot = ordersBlock.querySelector(".orders-slot");
+  const tradesSlot = tradesBlock.querySelector(".trades-slot");
   const reconSlot = reconBlock.querySelector(".recon-slot");
   const auditSlot = auditBlock.querySelector(".audit-slot");
 
@@ -283,6 +364,57 @@ async function openAccountDetail(account) {
     renderError(portfolioSlot, err.message);
   }
 
+  // Positions / orders / trades. Empty is a real, correct answer here — an account
+  // with no open positions genuinely has none, so it says so rather than implying
+  // something failed to load.
+  await loadInto(positionsSlot, `/accounts/${account.account_id}/positions`, (rows) =>
+    renderRowsTable(
+      rows,
+      [
+        ["Symbol", (r) => r.tradingSymbol],
+        ["Exchange", (r) => r.exchange],
+        ["Product", (r) => r.product],
+        ["Net qty", (r) => String(r.netQuantity)],
+        ["Day buy", (r) => String(r.dayBuyQuantity)],
+        ["Day sell", (r) => String(r.daySellQuantity)],
+        ["Avg price", (r) => formatInr(r.averagePrice)],
+      ],
+      "No open positions.",
+    ),
+  );
+
+  await loadInto(ordersSlot, `/accounts/${account.account_id}/orders`, (rows) =>
+    renderRowsTable(
+      rows,
+      [
+        ["Symbol", (r) => r.tradingSymbol],
+        ["Side", (r) => r.transactionType],
+        ["Qty", (r) => `${r.filledQuantity}/${r.quantity}`],
+        ["Price", (r) => (r.price === null ? "—" : formatInr(r.price))],
+        ["Status", (r) => r.status],
+        // Broker's own status string, kept alongside the canonical one (rule 6).
+        ["Broker status", (r) => r.brokerNativeStatus],
+        ["Origin", (r) => r.origin],
+        ["Placed", (r) => formatDate(r.placedAt)],
+      ],
+      "No orders on record.",
+    ),
+  );
+
+  await loadInto(tradesSlot, `/accounts/${account.account_id}/trades`, (rows) =>
+    renderRowsTable(
+      rows,
+      [
+        ["Symbol", (r) => r.tradingSymbol],
+        ["Side", (r) => r.transactionType],
+        ["Qty", (r) => String(r.quantity)],
+        ["Price", (r) => formatInr(r.price)],
+        ["Traded at", (r) => formatDate(r.tradedAt)],
+      ],
+      "No trades on record.",
+    ),
+  );
+
   try {
     const runs = await getJSON(`/accounts/${account.account_id}/reconciliation-runs`);
     if (runs.length === 0) {
@@ -291,20 +423,53 @@ async function openAccountDetail(account) {
     } else {
       const table = el(`
         <table>
-          <thead><tr><th>Trigger</th><th>Started</th><th>Completed</th><th>Status</th></tr></thead>
+          <thead><tr><th>Trigger</th><th>Started</th><th>Completed</th><th>Status</th><th>Findings</th></tr></thead>
           <tbody></tbody>
         </table>
       `);
       const tbody = table.querySelector("tbody");
       for (const run of runs) {
-        tbody.appendChild(el(`
-          <tr>
+        const total = run.requiresAttentionCount + run.informationalCount;
+        const findingLabel =
+          total === 0
+            ? "none"
+            : run.requiresAttentionCount > 0
+              ? `${run.requiresAttentionCount} needs attention` +
+                (run.informationalCount > 0 ? `, ${run.informationalCount} info` : "")
+              : `${run.informationalCount} info`;
+
+        const row = el(`
+          <tr${total > 0 ? ' class="clickable"' : ""}>
             <td>${escapeHtml(run.trigger)}</td>
             <td>${formatDate(run.started_at)}</td>
             <td>${run.completed_at ? formatDate(run.completed_at) : "—"}</td>
             <td><span class="status-tag status-${run.status}">${escapeHtml(run.status)}</span></td>
+            <td>${escapeHtml(findingLabel)}${total > 0 ? ' <span class="expand-hint">▸</span>' : ""}</td>
           </tr>
-        `));
+        `);
+        tbody.appendChild(row);
+
+        // Findings load on demand, into a row inserted directly beneath this one —
+        // a run list with every run's findings inlined would bury the runs.
+        if (total > 0) {
+          let detailRow = null;
+          row.addEventListener("click", async () => {
+            if (detailRow) {
+              detailRow.remove();
+              detailRow = null;
+              row.querySelector(".expand-hint").textContent = "▸";
+              return;
+            }
+            detailRow = el(`<tr><td colspan="5"><div class="findings-slot">Loading…</div></td></tr>`);
+            row.after(detailRow);
+            row.querySelector(".expand-hint").textContent = "▾";
+            await loadInto(
+              detailRow.querySelector(".findings-slot"),
+              `/reconciliation-runs/${run.run_id}/findings`,
+              (findings) => renderFindings(findings),
+            );
+          });
+        }
       }
       reconSlot.innerHTML = "";
       reconSlot.appendChild(table);

@@ -120,6 +120,23 @@ tr.clickable:hover { background: rgba(255,255,255,0.03); }
 .sub-block { margin-top: 1.25rem; }
 .sub-block h3 { font-size: 0.8rem; color: var(--text-dim); margin: 0 0 0.5rem; text-transform: uppercase; letter-spacing: 0.03em; }
 
+.expand-hint { color: var(--text-dim); font-size: 0.7rem; }
+
+.findings-list { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.25rem 0 0.5rem; }
+.finding {
+  border-left: 3px solid var(--border);
+  background: rgba(255,255,255,0.03);
+  border-radius: 0 4px 4px 0;
+  padding: 0.5rem 0.7rem;
+}
+.finding-REQUIRES_ATTENTION { border-left-color: var(--warn); }
+.finding-INFORMATIONAL { border-left-color: var(--text-dim); }
+.finding-head { display: flex; align-items: baseline; gap: 0.6rem; }
+.finding-kind { font-size: 0.85rem; }
+.finding-severity { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.finding-REQUIRES_ATTENTION .finding-severity { color: var(--warn); }
+.finding-details { margin-top: 0.3rem; font-size: 0.75rem; color: var(--text-dim); word-break: break-all; }
+
 .exposure-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .exposure-row { display: grid; grid-template-columns: 7rem 1fr 3.5rem; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
 .exposure-label { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
