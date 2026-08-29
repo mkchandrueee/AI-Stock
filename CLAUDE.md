@@ -208,8 +208,18 @@ These come from the spec and are not subject to convenience.
 
 ## Commands
 
+- **`start.cmd` — the normal way to run everything locally.** Checks the Postgres
+  service, starts OpenBao if it isn't already up, builds, then runs the app.
+  Dashboard at `http://localhost:$PORT`.
 - `npm run typecheck` — `tsc --noEmit`
 - `npm run build` — compiles `src/` to `dist/`
 - `npm start` — runs `dist/http/server.js` with `.env` loaded; dashboard at
   `http://localhost:$PORT` (static files in `public/`, served by the same Fastify
-  app as the JSON API — see `src/http/server.ts`)
+  app as the JSON API — see `src/http/server.ts`). Assumes Postgres and OpenBao are
+  already running — `start.cmd` is what handles that.
+
+`OPENBAO_TOKEN` in `.env` must be a **plain** value (a UUID is fine), not one with
+OpenBao's own `s.` prefix: `start.cmd` pins the dev-mode root token to it via
+`-dev-root-token-id`, and OpenBao rejects an `s.`-prefixed ID with `invalid request`.
+Pinning is what stops dev mode's fresh-random-token-per-restart from silently
+invalidating `.env` (which surfaced as `SessionStore.save failed: HTTP 403`).
