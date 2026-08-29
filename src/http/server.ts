@@ -22,6 +22,12 @@ import { startReconciliationScheduler } from "../scheduler/reconciliation-schedu
 import { startAuditVerificationScheduler } from "../scheduler/audit-verification-scheduler.js";
 import { AuditLog, verifyAuditChain } from "../audit/audit-log.js";
 import { getAccountPortfolio, getUnifiedPortfolio } from "../portfolio/portfolio-service.js";
+import {
+  getAccountOrders,
+  getAccountPositions,
+  getAccountTrades,
+} from "../portfolio/account-activity-service.js";
+import { getFindingCountsForAccount, getRunFindings } from "../reconciliation/findings-query.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -142,6 +148,23 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     return getAccountPortfolio(pool, accountId);
   });
 
+  // Positions/orders/trades (spec §16). Synced since the sync service was written;
+  // these are the first read paths for them. No P&L — see account-activity-service.ts.
+  app.get("/accounts/:accountId/positions", async (request) => {
+    const { accountId } = request.params as { accountId: string };
+    return getAccountPositions(pool, accountId);
+  });
+
+  app.get("/accounts/:accountId/orders", async (request) => {
+    const { accountId } = request.params as { accountId: string };
+    return getAccountOrders(pool, accountId);
+  });
+
+  app.get("/accounts/:accountId/trades", async (request) => {
+    const { accountId } = request.params as { accountId: string };
+    return getAccountTrades(pool, accountId);
+  });
+
   app.get("/accounts/:accountId/reconciliation-runs", async (request) => {
     const { accountId } = request.params as { accountId: string };
     const runs = await pool.query(
@@ -150,7 +173,21 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
        order by started_at desc limit 20`,
       [accountId],
     );
-    return runs.rows;
+    // Finding counts joined in so a run row can say what it found, not just its
+    // status — one query for the page rather than one per run.
+    const counts = await getFindingCountsForAccount(pool, accountId);
+    const byRunId = new Map(counts.map((c) => [c.runId, c]));
+    return runs.rows.map((run) => ({
+      ...run,
+      requiresAttentionCount: byRunId.get(run.run_id)?.requiresAttention ?? 0,
+      informationalCount: byRunId.get(run.run_id)?.informational ?? 0,
+    }));
+  });
+
+  // What a given run actually found — the detail behind RECONCILIATION_REQUIRED.
+  app.get("/reconciliation-runs/:runId/findings", async (request) => {
+    const { runId } = request.params as { runId: string };
+    return getRunFindings(pool, runId);
   });
 
   app.get("/accounts/:accountId/audit-log", async (request) => {
