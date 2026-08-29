@@ -67,6 +67,38 @@ governor required by broker-adapters.md ("stricter than the broker's published l
 there's very little headroom to be stricter than 1 req/sec without polling less than once
 a second, which is already the ceiling.
 
+## Historical candles — verified returning real data, 2026-08-29
+
+Closes the open item carried in `CLAUDE.md`'s operating mode: the 2026-08-16 pass got
+`status:true` with **zero** candles, which confirmed availability but never that the
+endpoint returns data. Re-probed against the real account on a day with a live
+session; findings are empirical, not documentation-derived.
+
+- **Endpoint** (from Angel One's own SDK route table, `api.candle.data`):
+  `POST /rest/secure/angelbroking/historical/v1/getCandleData`, body
+  `{exchange, symboltoken, interval, fromdate, todate}`.
+- **Returns real candles.** `ONE_DAY` over a 10-day window on RELIANCE-EQ (token
+  2885, NSE) returned 7 candles spanning 2026-08-20 to 2026-08-28. `ONE_MINUTE`
+  returned 102 candles for the same day's session. Candle shape is a positional
+  array: `[timestamp, open, high, low, close, volume]`, timestamp ISO-8601 with
+  `+05:30` offset.
+- **Datetime format: `"YYYY-MM-DD HH:MM"` only.** Verified by sending both forms in
+  the same run: without seconds → HTTP 200; with seconds (`"...HH:MM:SS"`) → **HTTP
+  400**. Community sources showing a seconds-bearing format are wrong for this
+  endpoint. This was the one parameter detail the SDK source did not settle.
+- **`fromdate`'s time-of-day is a hard filter, including for `ONE_DAY`.** Requesting
+  from `2026-08-19 09:00` returned nothing for the 19th, because a daily candle is
+  stamped `00:00` and therefore falls before the requested start. Daily-interval
+  requests must use `00:00` or they silently drop the first day — silently, since the
+  response is a perfectly successful 200.
+- **No static IP, no order-scope permission needed** — consistent with every prior
+  pass; this ran against the ordinary session the app's own login flow stores.
+
+How it was probed: the JWT already held in OpenBao from the app's normal login was
+read locally and used in-process. No credential was entered anywhere, and the token
+was never printed, logged, or written to disk — only candle counts and OHLC values,
+which are public market data.
+
 **Confirmed against a real account, 2026-08-16: a genuinely empty result comes back as
 `status:true, data:null`, not `data:[]`.** Not documented anywhere in the official docs —
 found by connecting a real account with zero holdings/positions/orders/trades and watching

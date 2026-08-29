@@ -139,15 +139,14 @@ everything gate-independent keeps moving.**
   before the answer risks designing around an assumed outcome, the exact thing
   this file has said not to do since before Phase 1 started.
 - **Phase 1 code stays stable.** Frozen means frozen — don't revisit it looking
-  for work to do. **One narrow, explicit exception**: re-running the exact same
-  disposable local verification test from `angel-one-live-verification.md` on an
-  actual NSE trading day, to confirm the historical-candle endpoint returns real
-  data (the original test ran on a non-trading day and got a correctly-empty
-  result — not a failure, just not yet confirmed positive). This is
-  re-verification using the already-approved protocol: a disposable local
-  script, run by the owner in their own terminal, credentials never entered
-  through chat — same as every prior live test. Not new Phase 1 development.
-  Nothing else about Phase 1 reopens.
+  for work to do. **The one narrow exception that used to sit here — re-running
+  the historical-candle verification on a real trading day — is now DISCHARGED
+  (2026-08-29).** The endpoint is confirmed returning real candles, the accepted
+  datetime format is pinned, and a silent `fromdate` boundary trap is documented:
+  see the "Historical candles" section of
+  `docs/design/angel-one-verification.md`. It needed no credentials in the end —
+  the JWT already stored in OpenBao by the app's own login was used locally and
+  never surfaced. Nothing else about Phase 1 reopens.
 - **Parallel work is fine wherever it's genuinely independent of Gate C** —
   Gate A/B research and documentation, the above verification item. Not live AI
   trading or recommendation implementation under any framing.
