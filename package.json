@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc",
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
     "start": "node --env-file=.env dist/http/server.js"
   },
   "dependencies": {
