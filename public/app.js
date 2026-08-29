@@ -509,6 +509,240 @@ async function openAccountDetail(account) {
   }
 }
 
+// ---- Screener ----
+//
+// The user builds the filter here; nothing in this UI ranks or suggests instruments.
+// Results are listed in the order the engine returned them (input order), and skipped
+// instruments are shown with their reason rather than quietly missing.
+
+const selectedInstruments = new Map(); // instrumentId -> {tradingSymbol, exchange}
+const criteria = [];
+
+const INDICATORS = ["CLOSE", "RSI", "SMA", "EMA", "DISTANCE_FROM_SMA_PCT"];
+const OPERATORS = [
+  ["LT", "<"],
+  ["LTE", "≤"],
+  ["GT", ">"],
+  ["GTE", "≥"],
+];
+
+function renderSelectedInstruments() {
+  const container = document.getElementById("selected-instruments");
+  container.innerHTML = "";
+  if (selectedInstruments.size === 0) {
+    container.appendChild(el(`<div class="empty-state">No instruments selected yet.</div>`));
+    return;
+  }
+  for (const [id, info] of selectedInstruments) {
+    const chip = el(`<span class="chip"><span class="chip-label"></span> <button class="chip-remove">×</button></span>`);
+    chip.querySelector(".chip-label").textContent = `${info.tradingSymbol} · ${info.exchange}`;
+    chip.querySelector(".chip-remove").addEventListener("click", () => {
+      selectedInstruments.delete(id);
+      renderSelectedInstruments();
+    });
+    container.appendChild(chip);
+  }
+}
+
+let searchTimer = null;
+document.getElementById("instrument-search").addEventListener("input", (evt) => {
+  const q = evt.target.value.trim();
+  const results = document.getElementById("search-results");
+  clearTimeout(searchTimer);
+  if (q.length < 2) {
+    results.hidden = true;
+    return;
+  }
+  // Debounced: this queries a 155k-row table on every keystroke otherwise.
+  searchTimer = setTimeout(async () => {
+    try {
+      const rows = await getJSON(`/instruments/search?q=${encodeURIComponent(q)}`);
+      results.innerHTML = "";
+      if (rows.length === 0) {
+        results.appendChild(el(`<div class="empty-state">No match.</div>`));
+      } else {
+        for (const row of rows) {
+          const item = el(`<div class="search-result"></div>`);
+          item.textContent = `${row.tradingSymbol} · ${row.exchange} · ${row.instrumentType}`;
+          item.addEventListener("click", () => {
+            if (selectedInstruments.size >= 25 && !selectedInstruments.has(row.instrumentId)) {
+              alert("At most 25 instruments per run — the broker's rate limit makes larger runs impractically slow.");
+              return;
+            }
+            selectedInstruments.set(row.instrumentId, {
+              tradingSymbol: row.tradingSymbol,
+              exchange: row.exchange,
+            });
+            renderSelectedInstruments();
+            results.hidden = true;
+            document.getElementById("instrument-search").value = "";
+          });
+          results.appendChild(item);
+        }
+      }
+      results.hidden = false;
+    } catch (err) {
+      results.innerHTML = "";
+      results.appendChild(el(`<div class="error-state">${escapeHtml(err.message)}</div>`));
+      results.hidden = false;
+    }
+  }, 250);
+});
+
+function renderCriteria() {
+  const container = document.getElementById("criteria-list");
+  container.innerHTML = "";
+  if (criteria.length === 0) {
+    container.appendChild(el(`<div class="empty-state">No criteria yet — add at least one.</div>`));
+    return;
+  }
+  criteria.forEach((criterion, index) => {
+    const row = el(`
+      <div class="criterion-row">
+        <select class="c-indicator"></select>
+        <input type="number" class="c-period" placeholder="period" />
+        <select class="c-operator"></select>
+        <input type="number" class="c-value" step="any" />
+        <button class="button button-danger button-small c-remove">Remove</button>
+      </div>
+    `);
+
+    const indicatorSelect = row.querySelector(".c-indicator");
+    for (const name of INDICATORS) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      if (name === criterion.indicator) option.selected = true;
+      indicatorSelect.appendChild(option);
+    }
+    const operatorSelect = row.querySelector(".c-operator");
+    for (const [value, label] of OPERATORS) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      if (value === criterion.operator) option.selected = true;
+      operatorSelect.appendChild(option);
+    }
+
+    const periodInput = row.querySelector(".c-period");
+    // CLOSE is the one indicator with no period; hide it rather than accept a value
+    // the server would reject.
+    periodInput.hidden = criterion.indicator === "CLOSE";
+    periodInput.value = criterion.period ?? "";
+
+    const valueInput = row.querySelector(".c-value");
+    valueInput.value = criterion.value;
+
+    indicatorSelect.addEventListener("change", (e) => {
+      criterion.indicator = e.target.value;
+      if (criterion.indicator === "CLOSE") delete criterion.period;
+      else if (criterion.period === undefined) criterion.period = 14;
+      renderCriteria();
+    });
+    periodInput.addEventListener("input", (e) => {
+      criterion.period = e.target.value === "" ? undefined : Number(e.target.value);
+    });
+    operatorSelect.addEventListener("change", (e) => {
+      criterion.operator = e.target.value;
+    });
+    valueInput.addEventListener("input", (e) => {
+      criterion.value = Number(e.target.value);
+    });
+    row.querySelector(".c-remove").addEventListener("click", () => {
+      criteria.splice(index, 1);
+      renderCriteria();
+    });
+
+    container.appendChild(row);
+  });
+}
+
+document.getElementById("add-criterion").addEventListener("click", () => {
+  criteria.push({ indicator: "RSI", period: 14, operator: "LT", value: 30 });
+  renderCriteria();
+});
+
+document.getElementById("run-screen").addEventListener("click", async () => {
+  const results = document.getElementById("screen-results");
+  if (selectedInstruments.size === 0 || criteria.length === 0) {
+    results.innerHTML = "";
+    results.appendChild(el(`<div class="error-state">Select at least one instrument and one criterion.</div>`));
+    return;
+  }
+
+  const accounts = await getJSON("/accounts").catch(() => []);
+  if (accounts.length === 0) {
+    results.innerHTML = "";
+    results.appendChild(el(`<div class="error-state">No connected account — a screen uses your broker session for prices.</div>`));
+    return;
+  }
+
+  const count = selectedInstruments.size;
+  results.innerHTML = "";
+  results.appendChild(
+    el(`<div class="loading-state">Running — fetching ${count} instrument${count === 1 ? "" : "s"} sequentially at the broker's rate limit, roughly ${Math.ceil(count * 1.2)}s…</div>`),
+  );
+
+  try {
+    const outcome = await getJSON(`/accounts/${accounts[0].account_id}/screener/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instrumentIds: [...selectedInstruments.keys()],
+        criteria,
+        interval: "ONE_DAY",
+        lookbackDays: 60,
+      }),
+    });
+    renderScreenResults(results, outcome);
+  } catch (err) {
+    renderError(results, err.message);
+  }
+});
+
+function renderScreenResults(container, outcome) {
+  container.innerHTML = "";
+  const { result, requestedCount } = outcome;
+
+  const summary = el(`<div class="sub-block"><h3>Results</h3><div class="screen-summary"></div></div>`);
+  summary.querySelector(".screen-summary").textContent =
+    `${result.matches.length} matched of ${result.evaluatedCount} evaluated ` +
+    `(${requestedCount} requested, ${result.skipped.length} skipped)`;
+  container.appendChild(summary);
+
+  if (result.matches.length > 0) {
+    // Column set is derived from the criteria actually used, so every number shown
+    // traces to something the user asked for.
+    const valueKeys = Object.keys(result.matches[0].values);
+    const columns = [
+      ["Symbol", (r) => r.tradingSymbol],
+      ["Exchange", (r) => r.exchange],
+      ...valueKeys.map((key) => [key, (r) => (r.values[key] ?? 0).toFixed(2)]),
+    ];
+    container.appendChild(renderRowsTable(result.matches, columns, "No matches."));
+  } else {
+    container.appendChild(el(`<div class="empty-state">No instrument matched every criterion.</div>`));
+  }
+
+  if (result.skipped.length > 0) {
+    const skipBlock = el(`<div class="sub-block"><h3>Skipped — could not be evaluated</h3></div>`);
+    skipBlock.appendChild(
+      renderRowsTable(
+        result.skipped,
+        [
+          ["Symbol", (r) => r.tradingSymbol],
+          ["Reason", (r) => r.reason],
+        ],
+        "None.",
+      ),
+    );
+    container.appendChild(skipBlock);
+  }
+}
+
+renderSelectedInstruments();
+renderCriteria();
+
 document.getElementById("close-account-detail").addEventListener("click", () => {
   document.getElementById("account-detail-section").hidden = true;
   currentDetailAccount = null;

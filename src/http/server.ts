@@ -229,6 +229,32 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
     return outcome;
   });
 
+  /** Symbol lookup against the Security Master, so a screen isn't limited to what the
+   * account already holds. Prefix-matched and capped — this table holds ~155k rows. */
+  app.get("/instruments/search", async (request, reply) => {
+    const { q, exchange } = request.query as { q?: string; exchange?: string };
+    if (!q || q.trim().length < 2) {
+      return reply.status(400).send({ error: "q must be at least 2 characters" });
+    }
+    const result = await pool.query(
+      `select i.instrument_id, iv.trading_symbol, i.exchange, i.instrument_type
+       from instrument i
+       join instrument_version iv
+         on iv.instrument_id = i.instrument_id and iv.effective_to is null
+       where iv.trading_symbol like upper($1)
+         ${exchange ? "and i.exchange = $2" : ""}
+       order by length(iv.trading_symbol), iv.trading_symbol
+       limit 20`,
+      exchange ? [`${q.trim()}%`, exchange] : [`${q.trim()}%`],
+    );
+    return result.rows.map((r) => ({
+      instrumentId: r.instrument_id,
+      tradingSymbol: r.trading_symbol,
+      exchange: r.exchange,
+      instrumentType: r.instrument_type,
+    }));
+  });
+
   /** Instruments the account actually holds — the obvious starting set to screen,
    * and the one whose data needs no entitlement beyond the user's own. */
   app.get("/accounts/:accountId/screenable-instruments", async (request) => {

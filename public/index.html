@@ -32,6 +32,34 @@
       <div id="portfolio-exposure"></div>
     </section>
 
+    <section id="screener-section">
+      <div class="section-header">
+        <h2>Screener</h2>
+        <button class="button" id="run-screen">Run screen</button>
+      </div>
+      <p class="section-note">
+        You define the filter; the platform applies it. Prices come from your own
+        connected broker session, so a run is rate-limited and capped at 25 instruments.
+      </p>
+
+      <div class="sub-block">
+        <h3>Instruments</h3>
+        <div class="search-row">
+          <input type="text" id="instrument-search" placeholder="Search symbol (min 2 chars), e.g. RELI" autocomplete="off" />
+          <div id="search-results" class="search-results" hidden></div>
+        </div>
+        <div id="selected-instruments" class="chip-list"></div>
+      </div>
+
+      <div class="sub-block">
+        <h3>Criteria</h3>
+        <div id="criteria-list"></div>
+        <button class="button button-secondary button-small" id="add-criterion">+ Add criterion</button>
+      </div>
+
+      <div id="screen-results"></div>
+    </section>
+
     <section id="account-detail-section" hidden>
       <div class="section-header">
         <h2 id="account-detail-title">Account detail</h2>
