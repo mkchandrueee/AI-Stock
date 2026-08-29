@@ -32,6 +32,28 @@
       <div id="portfolio-exposure"></div>
     </section>
 
+    <section id="scanner-section">
+      <div class="section-header">
+        <h2>Scanner — ranked by conviction</h2>
+        <button class="button" id="run-scanner">Run scan</button>
+      </div>
+      <p class="section-note">
+        The system scores and ranks every cached instrument itself — you don't write filters.
+        Each score breaks down into the factors that produced it; click a row to see them.
+      </p>
+
+      <div id="cache-status" class="cache-status">Loading cache status…</div>
+
+      <div class="scanner-controls">
+        <label>Min conviction <input type="number" id="min-conviction" value="0" min="0" max="100" /></label>
+        <label>Show top <input type="number" id="scan-limit" value="25" min="1" max="200" /></label>
+        <button class="button button-secondary button-small" id="start-backfill">Build cache</button>
+        <button class="button button-secondary button-small" id="cancel-backfill" hidden>Stop</button>
+      </div>
+
+      <div id="scanner-results"></div>
+    </section>
+
     <section id="screener-section">
       <div class="section-header">
         <h2>Screener</h2>

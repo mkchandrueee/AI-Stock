@@ -509,6 +509,210 @@ async function openAccountDetail(account) {
   }
 }
 
+// ---- Scanner (ranked by conviction) ----
+//
+// Unlike the screener below, this ranks. That difference is the owner override
+// recorded in CLAUDE.md, not an incidental UI choice — so the coverage line is shown
+// prominently: a ranking drawn from 5% of the market must not read as "the top stocks
+// in the market".
+
+function bandClass(band) {
+  return `band band-${band}`;
+}
+
+async function loadCacheStatus() {
+  const container = document.getElementById("cache-status");
+  let status;
+  try {
+    status = await getJSON("/candle-cache/status");
+  } catch (err) {
+    renderError(container, err.message);
+    return null;
+  }
+
+  const pct = status.coveragePct.toFixed(1);
+  const newest = status.newestTs ? formatDate(status.newestTs) : "—";
+  container.innerHTML = "";
+  container.appendChild(
+    el(`<div class="cache-line">
+      <span><strong>${status.instrumentsWithData}</strong> of ${status.universeSize} instruments cached (${pct}%)</span>
+      <span>${status.totalCandles.toLocaleString("en-IN")} bars · newest ${escapeHtml(newest)}</span>
+    </div>`),
+  );
+  const bar = el(`<div class="coverage-track"><div class="coverage-fill"></div></div>`);
+  bar.querySelector(".coverage-fill").style.width = `${Math.min(status.coveragePct, 100)}%`;
+  container.appendChild(bar);
+
+  if (status.backfillRunning) {
+    container.appendChild(el(`<div class="cache-note">Building cache… roughly 1.2s per instrument.</div>`));
+  } else if (status.lastReport && !status.lastReport.error) {
+    const r = status.lastReport;
+    container.appendChild(
+      el(`<div class="cache-note">Last run: ${r.attempted} attempted, ${r.succeeded} with data, ${r.empty} empty, ${r.failed} failed${r.stoppedReason ? ` — stopped: ${escapeHtml(r.stoppedReason)}` : ""}</div>`),
+    );
+  } else if (status.lastReport && status.lastReport.error) {
+    container.appendChild(el(`<div class="error-state">Last run failed: ${escapeHtml(status.lastReport.error)}</div>`));
+  }
+
+  document.getElementById("start-backfill").hidden = status.backfillRunning;
+  document.getElementById("cancel-backfill").hidden = !status.backfillRunning;
+  return status;
+}
+
+let backfillPoller = null;
+function pollCacheWhileRunning() {
+  clearInterval(backfillPoller);
+  backfillPoller = setInterval(async () => {
+    const status = await loadCacheStatus();
+    if (!status || !status.backfillRunning) clearInterval(backfillPoller);
+  }, 5000);
+}
+
+document.getElementById("start-backfill").addEventListener("click", async () => {
+  const accounts = await getJSON("/accounts").catch(() => []);
+  if (accounts.length === 0) {
+    alert("Connect a broker account first — the cache is built from your own broker session.");
+    return;
+  }
+  const batchSize = Number(prompt("How many instruments to fetch this run? (~1.2s each)", "200"));
+  if (!batchSize || batchSize < 1) return;
+  try {
+    await getJSON("/candle-cache/backfill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId: accounts[0].account_id, batchSize }),
+    });
+    await loadCacheStatus();
+    pollCacheWhileRunning();
+  } catch (err) {
+    alert(`Could not start: ${err.message}`);
+  }
+});
+
+document.getElementById("cancel-backfill").addEventListener("click", async () => {
+  await getJSON("/candle-cache/backfill/cancel", { method: "POST" }).catch(() => {});
+  await loadCacheStatus();
+});
+
+document.getElementById("run-scanner").addEventListener("click", runScanner);
+
+async function runScanner() {
+  const results = document.getElementById("scanner-results");
+  results.innerHTML = "";
+  results.appendChild(el(`<div class="loading-state">Scanning the cache…</div>`));
+  try {
+    const outcome = await getJSON("/scanner/rank", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        limit: Number(document.getElementById("scan-limit").value) || 25,
+        minConviction: Number(document.getElementById("min-conviction").value) || 0,
+      }),
+    });
+    renderScannerResults(results, outcome);
+  } catch (err) {
+    renderError(results, err.message);
+  }
+}
+
+function renderScannerResults(container, outcome) {
+  container.innerHTML = "";
+
+  // Stated before the list, deliberately — the ranking is only over what's cached.
+  const cov = outcome.coverage;
+  container.appendChild(
+    el(`<div class="scan-summary">
+      Ranked <strong>${outcome.totalRankedBeforeLimit}</strong> instruments from
+      ${cov.scannedCount} scanned of a ${cov.universeSize} universe
+      (${cov.coveragePct.toFixed(1)}% cached)${outcome.unscorableCount ? ` · ${outcome.unscorableCount} unscorable` : ""}.
+      Benchmark: ${escapeHtml(outcome.benchmark.symbol)} (${outcome.benchmark.barsAvailable} bars).
+    </div>`),
+  );
+  if (cov.coveragePct < 90) {
+    container.appendChild(
+      el(`<div class="scan-caveat">This ranks only what's cached so far — not the whole market. Use “Build cache” to widen it.</div>`),
+    );
+  }
+
+  if (outcome.ranked.length === 0) {
+    container.appendChild(el(`<div class="empty-state">Nothing met the minimum conviction.</div>`));
+    return;
+  }
+
+  const table = el(`
+    <table class="scan-table">
+      <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Band</th><th>Points</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  `);
+  const tbody = table.querySelector("tbody");
+
+  outcome.ranked.forEach((stock, index) => {
+    const row = el(`
+      <tr class="clickable">
+        <td>${index + 1}</td>
+        <td class="scan-symbol"></td>
+        <td>
+          <div class="conviction-cell">
+            <div class="conviction-track"><div class="conviction-fill"></div></div>
+            <span class="conviction-value"></span>
+          </div>
+        </td>
+        <td><span class="${bandClass(stock.band)}"></span></td>
+        <td class="scan-points"></td>
+        <td><span class="expand-hint">▸</span></td>
+      </tr>
+    `);
+    row.querySelector(".scan-symbol").textContent = stock.tradingSymbol;
+    row.querySelector(".conviction-fill").style.width = `${stock.conviction}%`;
+    row.querySelector(".conviction-value").textContent = String(stock.conviction);
+    row.querySelector(".band").textContent = stock.band;
+    row.querySelector(".scan-points").textContent = `${stock.earnedPoints}/${stock.attainablePoints}`;
+    tbody.appendChild(row);
+
+    // The per-factor breakdown — the point of the whole design. A conviction number
+    // with no visible derivation is the opaque score spec §20 rules out.
+    let detailRow = null;
+    row.addEventListener("click", () => {
+      if (detailRow) {
+        detailRow.remove();
+        detailRow = null;
+        row.querySelector(".expand-hint").textContent = "▸";
+        return;
+      }
+      detailRow = el(`<tr><td colspan="6"><div class="factor-list"></div></td></tr>`);
+      const list = detailRow.querySelector(".factor-list");
+      for (const f of stock.factors) {
+        const item = el(`
+          <div class="factor factor-${f.status}">
+            <div class="factor-head">
+              <span class="factor-name"></span>
+              <span class="factor-points"></span>
+            </div>
+            <div class="factor-track"><div class="factor-fill"></div></div>
+            <div class="factor-detail"></div>
+          </div>
+        `);
+        item.querySelector(".factor-name").textContent = f.factor;
+        item.querySelector(".factor-points").textContent =
+          f.status === "SCORED" ? `${f.points}/${f.max}` : "unavailable";
+        item.querySelector(".factor-fill").style.width =
+          f.status === "SCORED" && f.max > 0 ? `${(f.points / f.max) * 100}%` : "0%";
+        item.querySelector(".factor-detail").textContent = f.detail;
+        list.appendChild(item);
+      }
+      row.after(detailRow);
+      row.querySelector(".expand-hint").textContent = "▾";
+    });
+  });
+
+  container.appendChild(table);
+}
+
+loadCacheStatus().then((status) => {
+  if (status && status.backfillRunning) pollCacheWhileRunning();
+});
+
 // ---- Screener ----
 //
 // The user builds the filter here; nothing in this UI ranks or suggests instruments.
