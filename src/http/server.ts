@@ -28,6 +28,7 @@ import {
   getAccountTrades,
 } from "../portfolio/account-activity-service.js";
 import { getFindingCountsForAccount, getRunFindings } from "../reconciliation/findings-query.js";
+import { ScreenerService, type ScreenerRunRequest } from "../analytics/screener-service.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -43,6 +44,7 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
   const reconciliationService = new ReconciliationService(pool, adapter);
   const auditLog = new AuditLog(pool);
   const sessionStore = new SessionStore(config.openBao, auditLog);
+  const screenerService = new ScreenerService(pool, adapter);
 
   const app = Fastify({ logger: true });
 
@@ -188,6 +190,64 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
   app.get("/reconciliation-runs/:runId/findings", async (request) => {
     const { runId } = request.params as { runId: string };
     return getRunFindings(pool, runId);
+  });
+
+  /**
+   * Runs a user-defined screen using the account's own broker session for price data.
+   * POST because it triggers real broker calls and takes seconds — not because it
+   * changes state; it writes nothing.
+   *
+   * The account is a parameter because the price data comes from *that user's* broker
+   * access, under their own entitlement — not from any shared market-data feed this
+   * platform is licensed to redistribute (which remains Gate B, unresolved).
+   */
+  app.post("/accounts/:accountId/screener/run", async (request, reply) => {
+    const { accountId } = request.params as { accountId: string };
+    const body = request.body as Partial<ScreenerRunRequest> | undefined;
+    if (!body || !Array.isArray(body.instrumentIds) || !Array.isArray(body.criteria)) {
+      return reply.status(400).send({ error: "instrumentIds and criteria are required" });
+    }
+
+    const session = await sessionStore.load(accountId);
+    if (!session) {
+      // Distinct from a failure: there's simply no usable session, and only the user
+      // can fix that by reconnecting (no silent-refresh path exists for this flow).
+      return reply.status(409).send({
+        error: "no valid broker session for this account — reconnect it first",
+      });
+    }
+
+    const outcome = await screenerService.run(session, {
+      instrumentIds: body.instrumentIds,
+      criteria: body.criteria,
+      interval: body.interval ?? "ONE_DAY",
+      lookbackDays: body.lookbackDays ?? 60,
+    });
+    if (!outcome.ok) {
+      return reply.status(400).send({ error: outcome.reason });
+    }
+    return outcome;
+  });
+
+  /** Instruments the account actually holds — the obvious starting set to screen,
+   * and the one whose data needs no entitlement beyond the user's own. */
+  app.get("/accounts/:accountId/screenable-instruments", async (request) => {
+    const { accountId } = request.params as { accountId: string };
+    const result = await pool.query(
+      `select h.instrument_id, iv.trading_symbol, i.exchange
+       from holding h
+       join instrument i on i.instrument_id = h.instrument_id
+       join instrument_version iv
+         on iv.instrument_id = h.instrument_id and iv.effective_to is null
+       where h.account_id = $1
+       order by iv.trading_symbol`,
+      [accountId],
+    );
+    return result.rows.map((r) => ({
+      instrumentId: r.instrument_id,
+      tradingSymbol: r.trading_symbol,
+      exchange: r.exchange,
+    }));
   });
 
   app.get("/accounts/:accountId/audit-log", async (request) => {
