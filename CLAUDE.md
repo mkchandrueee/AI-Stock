@@ -197,8 +197,13 @@ These come from the spec and are not subject to convenience.
 ## Stack
 
 - Language / runtime: Node.js / TypeScript
-- Database: Postgres + TimescaleDB extension for time-series; audit/consent ledger as a
-  hash-chained append-only Postgres table (spec §93.3, §43)
+- Database: Postgres. **TimescaleDB is NOT installed** — `pg_available_extensions`
+  lists only `pgcrypto` on this instance, despite this line previously claiming
+  otherwise (corrected 2026-08-29). Plain Postgres is comfortably adequate at current
+  scale: the candle cache is a few thousand instruments × a few hundred daily bars,
+  low single-digit millions of rows, served by a normal covering index. If TimescaleDB
+  is installed later, `candle` can become a hypertable with no schema change.
+  Audit/consent ledger is a hash-chained append-only Postgres table (spec §93.3, §43)
 - Broker (Phase 1): Angel One (SmartAPI) — adapter implemented and live-verified against a
   real account (`docs/design/angel-one-live-verification.md`): authentication, profile,
   holdings, positions, funds, order book, trade book all confirmed working, no static IP

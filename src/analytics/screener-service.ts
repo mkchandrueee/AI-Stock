@@ -23,6 +23,7 @@
 import type { Pool } from "pg";
 import type { AuthSession, BrokerAdapter } from "../core/broker-adapter.js";
 import type { CandleInterval } from "../core/types.js";
+import type { CandleCache } from "./candle-cache.js";
 import {
   isUsableCriteriaSet,
   screen,
@@ -54,6 +55,32 @@ export interface ScreenerRunRequest {
 export type ScreenerRunOutcome =
   | { ok: true; result: ScreenerResult; requestedCount: number }
   | { ok: false; reason: string };
+
+/** Universe-wide screen, reading the local cache instead of the broker. */
+export interface CachedScreenRequest {
+  exchange: string;
+  instrumentType: string;
+  /** Symbol series to treat as the equity universe — see DEFAULT_EQUITY_SERIES. */
+  series: string[];
+  interval: CandleInterval;
+  /** How many recent closes to feed the indicators. */
+  barsPerInstrument: number;
+  criteria: ScreenerCriterion[];
+}
+
+export interface CachedScreenOutcome {
+  ok: true;
+  result: ScreenerResult;
+  /** Deliberately explicit: a scan over a partially-built cache must never read as a
+   * complete market sweep. `universeSize` is how many instruments exist in the
+   * requested slice; `scannedCount` is how many the cache could actually supply. */
+  coverage: {
+    universeSize: number;
+    scannedCount: number;
+    coveragePct: number;
+    cacheNewestTs: string | null;
+  };
+}
 
 interface InstrumentDisplay {
   instrumentId: string;
@@ -101,7 +128,64 @@ export class ScreenerService {
   constructor(
     private readonly pool: Pool,
     private readonly adapter: BrokerAdapter,
+    private readonly cache?: CandleCache,
   ) {}
+
+  /**
+   * Screens everything the cache holds for a slice of the universe. No broker calls,
+   * so this is fast and unbounded by the rate limit — that's the entire point of the
+   * cache, and the reason a screen can cover thousands of instruments instead of 25.
+   *
+   * Reports coverage rather than quietly scanning whatever happens to be cached:
+   * "142 matched" means nothing without "out of 380 scanned, of a 9,862 universe".
+   */
+  async runCached(request: CachedScreenRequest): Promise<CachedScreenOutcome | { ok: false; reason: string }> {
+    if (!this.cache) return { ok: false, reason: "candle cache is not configured" };
+    if (!isUsableCriteriaSet(request.criteria)) {
+      return { ok: false, reason: "at least one criterion is required" };
+    }
+
+    const universe = await this.pool.query(
+      `select i.instrument_id, iv.trading_symbol, i.exchange
+       from instrument i
+       join instrument_version iv
+         on iv.instrument_id = i.instrument_id and iv.effective_to is null
+       where i.exchange = $1 and i.instrument_type = $2
+         and split_part(iv.trading_symbol, '-', 2) = any($3::text[])`,
+      [request.exchange, request.instrumentType, request.series],
+    );
+
+    const ids = universe.rows.map((r) => r.instrument_id as string);
+    const closesById = await this.cache.getCloses(ids, request.interval, request.barsPerInstrument);
+
+    const candidates: ScreenerCandidate[] = [];
+    for (const row of universe.rows) {
+      const closes = closesById.get(row.instrument_id);
+      // Instruments the cache has nothing for aren't skips — they were never in the
+      // scan. Listing thousands of "not cached yet" rows would drown the real skips;
+      // the coverage numbers carry that information instead.
+      if (!closes || closes.length === 0) continue;
+      candidates.push({
+        instrumentId: row.instrument_id,
+        tradingSymbol: row.trading_symbol,
+        exchange: row.exchange,
+        closes,
+      });
+    }
+
+    const result = screen(candidates, request.criteria);
+    const summary = await this.cache.summary(request.interval);
+    return {
+      ok: true,
+      result,
+      coverage: {
+        universeSize: ids.length,
+        scannedCount: candidates.length,
+        coveragePct: ids.length === 0 ? 0 : (candidates.length / ids.length) * 100,
+        cacheNewestTs: summary.newestTs,
+      },
+    };
+  }
 
   async run(session: AuthSession, request: ScreenerRunRequest): Promise<ScreenerRunOutcome> {
     if (!isUsableCriteriaSet(request.criteria)) {

@@ -29,6 +29,9 @@ import {
 } from "../portfolio/account-activity-service.js";
 import { getFindingCountsForAccount, getRunFindings } from "../reconciliation/findings-query.js";
 import { ScreenerService, type ScreenerRunRequest } from "../analytics/screener-service.js";
+import { CandleCache, DEFAULT_EQUITY_SERIES } from "../analytics/candle-cache.js";
+import { CandleBackfillWorker } from "../analytics/candle-backfill.js";
+import type { CandleInterval } from "../core/types.js";
 import { loadConfig } from "./config.js";
 
 export function buildServer(config: ReturnType<typeof loadConfig>) {
@@ -44,7 +47,17 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
   const reconciliationService = new ReconciliationService(pool, adapter);
   const auditLog = new AuditLog(pool);
   const sessionStore = new SessionStore(config.openBao, auditLog);
-  const screenerService = new ScreenerService(pool, adapter);
+  const candleCache = new CandleCache(pool);
+  const screenerService = new ScreenerService(pool, adapter, candleCache);
+  const backfillWorker = new CandleBackfillWorker(adapter, candleCache);
+  // Process-local, deliberately: a backfill is an in-flight operation of THIS server
+  // instance, not durable state. A restart mid-walk loses only the progress flag —
+  // candle_coverage holds the actual progress, so the next run resumes correctly.
+  const backfillState: {
+    running: boolean;
+    cancelled: boolean;
+    lastReport: unknown;
+  } = { running: false, cancelled: false, lastReport: null };
 
   const app = Fastify({ logger: true });
 
@@ -227,6 +240,114 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
       return reply.status(400).send({ error: outcome.reason });
     }
     return outcome;
+  });
+
+  /**
+   * Screens the cached universe — no broker calls, so it isn't rate-limited and can
+   * cover thousands of instruments. Returns coverage alongside matches, because a
+   * scan over a partially-built cache must not read as a full-market sweep.
+   */
+  app.post("/screener/run-cached", async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    if (!Array.isArray(body["criteria"])) {
+      return reply.status(400).send({ error: "criteria are required" });
+    }
+    const outcome = await screenerService.runCached({
+      exchange: (body["exchange"] as string) ?? "NSE",
+      instrumentType: (body["instrumentType"] as string) ?? "EQUITY",
+      series: (body["series"] as string[]) ?? DEFAULT_EQUITY_SERIES,
+      interval: (body["interval"] as CandleInterval) ?? "ONE_DAY",
+      barsPerInstrument: (body["barsPerInstrument"] as number) ?? 120,
+      criteria: body["criteria"] as ScreenerRunRequest["criteria"],
+    });
+    if (!outcome.ok) return reply.status(400).send({ error: outcome.reason });
+    return outcome;
+  });
+
+  /** How much of the market the cache actually covers. */
+  app.get("/candle-cache/status", async (request) => {
+    const { interval } = request.query as { interval?: CandleInterval };
+    const chosen = interval ?? "ONE_DAY";
+    const summary = await candleCache.summary(chosen);
+    const universe = await pool.query<{ count: string }>(
+      `select count(*)
+       from instrument i
+       join instrument_version iv
+         on iv.instrument_id = i.instrument_id and iv.effective_to is null
+       where i.exchange = 'NSE' and i.instrument_type = 'EQUITY'
+         and split_part(iv.trading_symbol, '-', 2) = any($1::text[])`,
+      [DEFAULT_EQUITY_SERIES],
+    );
+    const universeSize = Number(universe.rows[0]?.count ?? 0);
+    return {
+      interval: chosen,
+      ...summary,
+      universeSize,
+      coveragePct: universeSize === 0 ? 0 : (summary.instrumentsWithData / universeSize) * 100,
+      backfillRunning: backfillState.running,
+      lastReport: backfillState.lastReport,
+    };
+  });
+
+  /**
+   * Starts a backfill batch in the background and returns immediately — a batch of
+   * any useful size takes minutes at the broker's rate limit, far longer than an
+   * HTTP request should hold open. Progress is read from /candle-cache/status.
+   */
+  app.post("/candle-cache/backfill", async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const accountId = body["accountId"] as string | undefined;
+    if (!accountId) return reply.status(400).send({ error: "accountId is required" });
+    if (backfillState.running) {
+      return reply.status(409).send({ error: "a backfill is already running" });
+    }
+
+    const session = await sessionStore.load(accountId);
+    if (!session) {
+      return reply.status(409).send({
+        error: "no valid broker session for this account — reconnect it first",
+      });
+    }
+
+    const batchSize = Math.min(Number(body["batchSize"] ?? 100), 2000);
+    backfillState.running = true;
+    backfillState.cancelled = false;
+
+    // Deliberately not awaited: the response returns now, the walk continues.
+    void backfillWorker
+      .run(
+        session,
+        {
+          interval: (body["interval"] as CandleInterval) ?? "ONE_DAY",
+          exchange: (body["exchange"] as string) ?? "NSE",
+          instrumentType: (body["instrumentType"] as string) ?? "EQUITY",
+          series: (body["series"] as string[]) ?? DEFAULT_EQUITY_SERIES,
+          batchSize,
+          lookbackDays: Number(body["lookbackDays"] ?? 200),
+          minRefetchIntervalMs: Number(body["minRefetchIntervalMs"] ?? 20 * 60 * 60 * 1000),
+        },
+        () => backfillState.cancelled,
+      )
+      .then((report) => {
+        backfillState.lastReport = report;
+      })
+      .catch((err: unknown) => {
+        backfillState.lastReport = { error: err instanceof Error ? err.message : String(err) };
+      })
+      .finally(() => {
+        backfillState.running = false;
+      });
+
+    return reply.status(202).send({
+      started: true,
+      batchSize,
+      estimatedSeconds: Math.ceil(batchSize * 1.2),
+    });
+  });
+
+  app.post("/candle-cache/backfill/cancel", async () => {
+    backfillState.cancelled = true;
+    return { cancelling: backfillState.running };
   });
 
   /** Symbol lookup against the Security Master, so a screen isn't limited to what the
