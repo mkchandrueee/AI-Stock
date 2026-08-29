@@ -35,4 +35,22 @@ export type InstrumentResolution =
 
 export interface InstrumentResolver {
   resolve(ref: BrokerNativeInstrumentRef): Promise<InstrumentResolution>;
+
+  /**
+   * The reverse direction: canonical id -> the identifiers a broker will accept.
+   *
+   * `resolve` covers instruments arriving *in* a broker response. This covers
+   * instruments going *out* in a request — asking for an instrument's candles means
+   * naming it in the broker's own vocabulary, and the canonical model forbids the
+   * caller knowing that vocabulary. The adapter translates; callers pass an
+   * InstrumentId and nothing else.
+   *
+   * Returns null when the instrument has no current mapping for that broker, which
+   * is expected (an instrument may be known to the Security Master but not listed by
+   * every broker) rather than exceptional.
+   */
+  toBrokerRef(
+    broker: BrokerId,
+    instrumentId: InstrumentId,
+  ): Promise<BrokerNativeInstrumentRef | null>;
 }

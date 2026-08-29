@@ -8,6 +8,8 @@ import type {
   BrokerAccountRef,
   BrokerAdapterError,
   BrokerId,
+  Candle,
+  CandleRequest,
   FundsSnapshot,
   Holding,
   Order,
@@ -106,4 +108,14 @@ export interface BrokerAdapter {
   getFunds(session: AuthSession, accountId: string): Promise<AdapterResult<FundsSnapshot>>;
   getOrderBook(session: AuthSession, accountId: string): Promise<AdapterResult<Order[]>>;
   getTradeBook(session: AuthSession, accountId: string): Promise<AdapterResult<Trade[]>>;
+
+  /**
+   * Historical OHLCV bars for one instrument. Market data, not account data — hence
+   * no accountId: the session authenticates the request, but the result belongs to
+   * the instrument, not to the connected account.
+   */
+  getCandles(
+    session: AuthSession,
+    request: CandleRequest,
+  ): Promise<AdapterResult<Candle[]>>;
 }

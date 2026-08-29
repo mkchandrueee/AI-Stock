@@ -102,6 +102,41 @@ export interface Trade {
 }
 
 /**
+ * Candle intervals. ONE_MINUTE and ONE_DAY are live-verified against a real account
+ * (docs/design/angel-one-verification.md, 2026-08-29); the rest appear in Angel One's
+ * documented vocabulary but have not been exercised here. Listed rather than typed as
+ * `string` so an unsupported interval is a compile error, not a runtime 400.
+ */
+export type CandleInterval =
+  | "ONE_MINUTE"
+  | "FIVE_MINUTE"
+  | "FIFTEEN_MINUTE"
+  | "ONE_HOUR"
+  | "ONE_DAY";
+
+export interface CandleRequest {
+  instrumentId: InstrumentId;
+  interval: CandleInterval;
+  /** Inclusive bounds. Adapters own the broker's own datetime formatting and
+   * timezone — callers pass real Dates and never a preformatted string. */
+  from: Date;
+  to: Date;
+}
+
+/** One OHLCV bar. Brokers commonly return these as positional arrays; that shape is
+ * unpacked at the adapter boundary and never leaks past it (spec §4). */
+export interface Candle {
+  instrumentId: InstrumentId;
+  /** ISO 8601 including offset, as the broker reported it — not re-zoned. */
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+/**
  * Canonical adapter errors (broker-adapters.md). Each broker error must be mapped to
  * exactly one of these — never passed through as a broker-specific code or message.
  */

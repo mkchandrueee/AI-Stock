@@ -28,6 +28,8 @@ import type {
 import type {
   Account,
   BrokerAdapterError,
+  Candle,
+  CandleRequest,
   FundsSnapshot,
   Holding,
   Order,
@@ -118,7 +120,10 @@ export class AngelOneAdapter implements BrokerAdapter {
       FUNDS: "SUPPORTED",
       MARGIN: "SUPPORTED",
       WEBSOCKET: "UNVERIFIED",
-      HISTORICAL_DATA: "UNVERIFIED",
+      // Live-verified 2026-08-29 against a real session: returns real OHLCV bars,
+      // accepted datetime format pinned, fromdate boundary behaviour documented.
+      // See the "Historical candles" section of angel-one-verification.md.
+      HISTORICAL_DATA: "SUPPORTED",
       OPTIONS_DATA: "UNVERIFIED",
       GTT: "UNVERIFIED",
       MULTI_LEG: "UNVERIFIED",
@@ -362,6 +367,87 @@ export class AngelOneAdapter implements BrokerAdapter {
     return { ok: true, value: trades };
   }
 
+  /**
+   * Historical candles. Every detail below is empirically verified (2026-08-29), not
+   * inferred — see angel-one-verification.md:
+   *
+   * - Datetime format is "YYYY-MM-DD HH:MM". Sending seconds returns HTTP 400.
+   * - `fromdate`'s time-of-day filters results even for ONE_DAY, whose candles are
+   *   stamped 00:00 — so a 09:00 start silently drops that day and still returns 200.
+   *   Normalised below rather than left as a trap for every caller.
+   * - Times are IST. Computed from the epoch with a fixed +05:30 offset rather than
+   *   the host's local time, so this is correct on a UTC server too (IST has no DST).
+   */
+  async getCandles(
+    session: AuthSession,
+    request: CandleRequest,
+  ): Promise<AdapterResult<Candle[]>> {
+    const ref = await this.config.instrumentResolver.toBrokerRef("ANGEL_ONE", request.instrumentId);
+    if (!ref || ref.brokerInstrumentToken === null) {
+      // Known to the Security Master but not mapped to an Angel One token — a real
+      // gap in data, not a malformed response or a transport failure.
+      return { ok: false, error: { kind: "PARTIAL_DATA", missing: [request.instrumentId] } };
+    }
+
+    const from =
+      request.interval === "ONE_DAY" ? startOfIstDay(request.from) : request.from;
+
+    const result = await this.request<unknown>(
+      session,
+      "POST",
+      "/rest/secure/angelbroking/historical/v1/getCandleData",
+      {
+        exchange: ref.exchange,
+        symboltoken: ref.brokerInstrumentToken,
+        interval: request.interval,
+        fromdate: formatIstMinute(from),
+        todate: formatIstMinute(request.to),
+      },
+    );
+    if (!result.ok) return result;
+
+    // Broker responses are untrusted (rule 3): each row is validated as a 6-element
+    // numeric-plus-timestamp array before being trusted as a bar.
+    const rows = (result.value ?? []) as unknown[];
+    if (!Array.isArray(rows)) {
+      return { ok: false, error: { kind: "MALFORMED_RESPONSE", detail: "candle data was not an array" } };
+    }
+
+    const candles: Candle[] = [];
+    for (const row of rows) {
+      if (!Array.isArray(row) || row.length < 6) {
+        return {
+          ok: false,
+          error: { kind: "MALFORMED_RESPONSE", detail: "candle row was not a 6-element array" },
+        };
+      }
+      const [timestamp, open, high, low, close, volume] = row as unknown[];
+      if (
+        typeof timestamp !== "string" ||
+        typeof open !== "number" ||
+        typeof high !== "number" ||
+        typeof low !== "number" ||
+        typeof close !== "number" ||
+        typeof volume !== "number"
+      ) {
+        return {
+          ok: false,
+          error: { kind: "MALFORMED_RESPONSE", detail: "candle row had unexpected field types" },
+        };
+      }
+      candles.push({
+        instrumentId: request.instrumentId,
+        timestamp,
+        open,
+        high,
+        low,
+        close,
+        volume,
+      });
+    }
+    return { ok: true, value: candles };
+  }
+
   private async request<T>(
     session: AuthSession,
     method: "GET" | "POST",
@@ -429,6 +515,27 @@ export class AngelOneAdapter implements BrokerAdapter {
 
     return { ok: true, value: parsed.data };
   }
+}
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** "YYYY-MM-DD HH:MM" in IST — the only format this endpoint accepts (seconds → 400).
+ * Shifts the epoch by a fixed offset and reads UTC components, so the result doesn't
+ * depend on the host's timezone. IST has no DST, so a fixed offset is exact. */
+function formatIstMinute(date: Date): string {
+  const ist = new Date(date.getTime() + IST_OFFSET_MS);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${ist.getUTCFullYear()}-${p(ist.getUTCMonth() + 1)}-${p(ist.getUTCDate())} ` +
+    `${p(ist.getUTCHours())}:${p(ist.getUTCMinutes())}`
+  );
+}
+
+/** Midnight IST on the same IST calendar day — see getCandles on why ONE_DAY needs it. */
+function startOfIstDay(date: Date): Date {
+  const ist = new Date(date.getTime() + IST_OFFSET_MS);
+  ist.setUTCHours(0, 0, 0, 0);
+  return new Date(ist.getTime() - IST_OFFSET_MS);
 }
 
 function mapErrorCode(code: string): BrokerAdapterError | null {

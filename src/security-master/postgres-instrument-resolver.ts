@@ -15,6 +15,7 @@ import type {
   InstrumentResolution,
   InstrumentResolver,
 } from "../core/instrument-resolver.js";
+import type { BrokerId, InstrumentId } from "../core/types.js";
 
 export class PostgresInstrumentResolver implements InstrumentResolver {
   constructor(private readonly pool: Pool) {}
@@ -44,5 +45,30 @@ export class PostgresInstrumentResolver implements InstrumentResolver {
     }
 
     return { ok: false, ref };
+  }
+
+  async toBrokerRef(
+    broker: BrokerId,
+    instrumentId: InstrumentId,
+  ): Promise<BrokerNativeInstrumentRef | null> {
+    const result = await this.pool.query<{
+      broker_instrument_token: string | null;
+      broker_trading_symbol: string | null;
+      exchange: string;
+    }>(
+      `select broker_instrument_token, broker_trading_symbol, exchange
+       from broker_instrument_mapping
+       where broker = $1 and instrument_id = $2 and effective_to is null
+       limit 1`,
+      [broker, instrumentId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      broker,
+      brokerInstrumentToken: row.broker_instrument_token,
+      tradingSymbol: row.broker_trading_symbol,
+      exchange: row.exchange,
+    };
   }
 }
