@@ -34,6 +34,7 @@ import type {
   Holding,
   Order,
   Position,
+  Quote,
   Trade,
 } from "../../core/types.js";
 import type { InstrumentResolver } from "../../core/instrument-resolver.js";
@@ -50,12 +51,17 @@ import type {
   AngelOneHoldingRaw,
   AngelOneOrderRaw,
   AngelOnePositionRaw,
+  AngelOneQuoteResponseRaw,
   AngelOneRmsRaw,
   AngelOneTradeRaw,
 } from "./raw-types.js";
 
 const API_ROOT = "https://apiconnect.angelone.in";
 const PUBLISHER_LOGIN_ROOT = "https://smartapi.angelone.in/publisher-login";
+
+/** Verified 2026-08-29: 50 tokens succeed, 78 return AB4029 "Tokens max limit
+ * exceeded". Not taken from documentation — measured against the live endpoint. */
+const QUOTE_BATCH_LIMIT = 50;
 
 /** Error codes verified at smartapi.angelbroking.com/docs/Exceptions, 2026-08-15.
  * Bucketed into canonical kinds; codes with no clean canonical fit (e.g. AB1009
@@ -124,7 +130,9 @@ export class AngelOneAdapter implements BrokerAdapter {
       // accepted datetime format pinned, fromdate boundary behaviour documented.
       // See the "Historical candles" section of angel-one-verification.md.
       HISTORICAL_DATA: "SUPPORTED",
-      OPTIONS_DATA: "UNVERIFIED",
+      // Live-verified 2026-08-29: batch quotes return open interest for NFO
+      // contracts, and getOIData returns daily OI history.
+      OPTIONS_DATA: "SUPPORTED",
       GTT: "UNVERIFIED",
       MULTI_LEG: "UNVERIFIED",
     },
@@ -446,6 +454,73 @@ export class AngelOneAdapter implements BrokerAdapter {
       });
     }
     return { ok: true, value: candles };
+  }
+
+  /**
+   * Batch quotes, including open interest for derivatives.
+   *
+   * The 50-token ceiling is verified, not assumed: 78 tokens in one call returns
+   * `AB4029 Tokens max limit exceeded` while 50 succeeds (2026-08-29). Chunking is
+   * done here so callers never learn the broker's limit — an option chain of 78
+   * strikes becomes 2 requests instead of 78 sequential single fetches.
+   *
+   * Instruments the broker doesn't return (its `unfetched` list) are simply absent
+   * from the result rather than being emitted as zero-valued quotes, which would be
+   * indistinguishable from a real quote of zero.
+   */
+  async getQuotes(
+    session: AuthSession,
+    instrumentIds: string[],
+  ): Promise<AdapterResult<Quote[]>> {
+    if (instrumentIds.length === 0) return { ok: true, value: [] };
+
+    // Resolve to broker tokens, grouped by exchange as the endpoint expects.
+    const byExchange = new Map<string, { token: string; instrumentId: string }[]>();
+    const tokenToInstrument = new Map<string, string>();
+    for (const instrumentId of instrumentIds) {
+      const ref = await this.config.instrumentResolver.toBrokerRef("ANGEL_ONE", instrumentId);
+      if (!ref || ref.brokerInstrumentToken === null) continue;
+      const list = byExchange.get(ref.exchange) ?? [];
+      list.push({ token: ref.brokerInstrumentToken, instrumentId });
+      byExchange.set(ref.exchange, list);
+      tokenToInstrument.set(`${ref.exchange}:${ref.brokerInstrumentToken}`, instrumentId);
+    }
+
+    const quotes: Quote[] = [];
+    for (const [exchange, entries] of byExchange) {
+      for (let i = 0; i < entries.length; i += QUOTE_BATCH_LIMIT) {
+        const chunk = entries.slice(i, i + QUOTE_BATCH_LIMIT);
+        const result = await this.request<AngelOneQuoteResponseRaw>(
+          session,
+          "POST",
+          "/rest/secure/angelbroking/market/v1/quote",
+          { mode: "FULL", exchangeTokens: { [exchange]: chunk.map((c) => c.token) } },
+        );
+        if (!result.ok) return result;
+
+        for (const raw of result.value?.fetched ?? []) {
+          const instrumentId = tokenToInstrument.get(`${raw.exchange}:${raw.symbolToken}`);
+          if (!instrumentId) continue; // not something we asked for
+          quotes.push({
+            instrumentId,
+            ltp: Number(raw.ltp),
+            open: Number(raw.open),
+            high: Number(raw.high),
+            low: Number(raw.low),
+            close: Number(raw.close),
+            netChange: Number(raw.netChange),
+            percentChange: Number(raw.percentChange),
+            tradeVolume: Number(raw.tradeVolume),
+            // Absent for cash instruments — null, never 0 (see the Quote type).
+            openInterest: raw.opnInterest === undefined || raw.opnInterest === null
+              ? null
+              : Number(raw.opnInterest),
+            exchangeFeedTime: raw.exchFeedTime ?? null,
+          });
+        }
+      }
+    }
+    return { ok: true, value: quotes };
   }
 
   private async request<T>(

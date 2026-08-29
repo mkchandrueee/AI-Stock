@@ -100,6 +100,23 @@ session; findings are empirical, not documentation-derived.
 - **No static IP, no order-scope permission needed** — consistent with every prior
   pass; this ran against the ordinary session the app's own login flow stores.
 
+## F&O data — verified 2026-08-29
+
+- **`market/v1/quote` (mode FULL) is a BATCH endpoint and returns open interest.**
+  Body is `{mode, exchangeTokens: {NFO: [...]}}`. Response fields observed live:
+  `ltp, open, high, low, close, netChange, percentChange, tradeVolume, opnInterest,
+  depth, 52WeekHigh/Low, lowerCircuit, upperCircuit`. Note `opnInterest` is spelled
+  exactly that way, and is absent for cash instruments.
+- **Batch ceiling is 50 tokens, measured not assumed.** 50 succeeds; 78 returns
+  `AB4029 Tokens max limit exceeded`. This is what makes option chains viable — a
+  78-strike chain is 2 calls instead of 78 sequential fetches at 1 req/sec.
+- **`getOIData` works**: `POST /rest/secure/angelbroking/historical/v1/getOIData`,
+  same params as candles, returns `{time, oi}` rows. Confirmed 20 daily rows for the
+  RELIANCE Sep future.
+- **Derivative→underlying linkage is NOT in our ingested data** — the scrip master's
+  `name` field carries it and ingestion drops it. See
+  `src/security-master/underlying-link-backfill.ts`.
+
 How it was probed: the JWT already held in OpenBao from the app's normal login was
 read locally and used in-process. No credential was entered anywhere, and the token
 was never printed, logged, or written to disk — only candle counts and OHLC values,

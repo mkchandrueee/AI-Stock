@@ -121,3 +121,30 @@ export interface AngelOneApiResponse<T> {
   errorcode: string;
   data: T;
 }
+
+/**
+ * market/v1/quote FULL response. Field names observed directly from a live call
+ * (2026-08-29), not from docs: `opnInterest` is spelled exactly that way, and is
+ * absent entirely for cash instruments.
+ */
+export interface AngelOneQuoteRaw {
+  exchange: string;
+  tradingSymbol: string;
+  symbolToken: string;
+  ltp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  netChange: number;
+  percentChange: number;
+  tradeVolume: number;
+  opnInterest?: number | null;
+  exchFeedTime?: string;
+}
+
+export interface AngelOneQuoteResponseRaw {
+  fetched: AngelOneQuoteRaw[];
+  /** Tokens the broker declined to return — reported by it, not inferred. */
+  unfetched: { exchange: string; symbolToken: string; message?: string; errorCode?: string }[];
+}

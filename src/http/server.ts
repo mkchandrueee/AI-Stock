@@ -32,6 +32,7 @@ import { ScreenerService, type ScreenerRunRequest } from "../analytics/screener-
 import { CandleCache, DEFAULT_EQUITY_SERIES } from "../analytics/candle-cache.js";
 import { CandleBackfillWorker } from "../analytics/candle-backfill.js";
 import { rankInstruments, type ScoreInput } from "../analytics/scoring.js";
+import { OptionChainService } from "../analytics/option-chain-service.js";
 import type { CandleInterval } from "../core/types.js";
 import { loadConfig } from "./config.js";
 
@@ -51,6 +52,7 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
   const candleCache = new CandleCache(pool);
   const screenerService = new ScreenerService(pool, adapter, candleCache);
   const backfillWorker = new CandleBackfillWorker(adapter, candleCache);
+  const optionChainService = new OptionChainService(pool, adapter);
   // Process-local, deliberately: a backfill is an in-flight operation of THIS server
   // instance, not durable state. A restart mid-walk loses only the progress flag —
   // candle_coverage holds the actual progress, so the next run resumes correctly.
@@ -351,6 +353,60 @@ export function buildServer(config: ReturnType<typeof loadConfig>) {
         note: "ETF proxy for the index — Angel One does not serve index candles to this app",
       },
     };
+  });
+
+  /** Underlyings that actually have live F&O contracts. */
+  app.get("/fno/underlyings", async () => {
+    const result = await pool.query(
+      `select uv.trading_symbol, count(*) filter (where i.instrument_type='OPTIONS') as option_count,
+              count(*) filter (where i.instrument_type='FUTURES') as future_count
+       from instrument i
+       join instrument u on u.instrument_id = i.underlying_instrument_id
+       join instrument_version uv
+         on uv.instrument_id = u.instrument_id and uv.effective_to is null
+       where i.expiry >= current_date and i.exchange = 'NFO'
+         -- Exchange test scrips (011NSETEST-EQ etc.) carry real F&O rows in the
+         -- scrip master but are not tradable instruments.
+         and uv.trading_symbol not like '%NSETEST%'
+       group by uv.trading_symbol
+       order by uv.trading_symbol`,
+    );
+    return result.rows.map((r) => ({
+      tradingSymbol: r.trading_symbol,
+      optionCount: Number(r.option_count),
+      futureCount: Number(r.future_count),
+    }));
+  });
+
+  app.get("/fno/:symbol/expiries", async (request) => {
+    const { symbol } = request.params as { symbol: string };
+    return optionChainService.listExpiries(symbol);
+  });
+
+  /**
+   * Full option chain with OI-derived measures (PCR, max pain, OI walls). Needs a
+   * live session: these are live quotes, not cached history.
+   */
+  app.get("/fno/:symbol/chain", async (request, reply) => {
+    const { symbol } = request.params as { symbol: string };
+    const { expiry, accountId } = request.query as { expiry?: string; accountId?: string };
+    if (!expiry) return reply.status(400).send({ error: "expiry is required (YYYY-MM-DD)" });
+
+    const accounts = accountId
+      ? [{ account_id: accountId }]
+      : (await pool.query<{ account_id: string }>(`select account_id from account limit 1`)).rows;
+    if (accounts.length === 0) return reply.status(409).send({ error: "no connected account" });
+
+    const session = await sessionStore.load(accounts[0]!.account_id);
+    if (!session) {
+      return reply.status(409).send({
+        error: "no valid broker session — reconnect the account first",
+      });
+    }
+
+    const outcome = await optionChainService.getChain(session, symbol, expiry);
+    if (!outcome.ok) return reply.status(400).send({ error: outcome.reason });
+    return outcome.chain;
   });
 
   /** How much of the market the cache actually covers. */

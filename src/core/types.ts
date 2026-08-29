@@ -137,6 +137,25 @@ export interface Candle {
 }
 
 /**
+ * A live market quote. `openInterest` is null for cash instruments — OI only exists
+ * for derivatives, and 0 would wrongly assert "no open interest" for something that
+ * has no such concept.
+ */
+export interface Quote {
+  instrumentId: InstrumentId;
+  ltp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  netChange: number;
+  percentChange: number;
+  tradeVolume: number;
+  openInterest: number | null;
+  exchangeFeedTime: string | null;
+}
+
+/**
  * Canonical adapter errors (broker-adapters.md). Each broker error must be mapped to
  * exactly one of these — never passed through as a broker-specific code or message.
  */

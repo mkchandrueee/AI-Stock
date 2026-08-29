@@ -14,6 +14,7 @@ import type {
   Holding,
   Order,
   Position,
+  Quote,
   Trade,
 } from "./types.js";
 
@@ -118,4 +119,14 @@ export interface BrokerAdapter {
     session: AuthSession,
     request: CandleRequest,
   ): Promise<AdapterResult<Candle[]>>;
+
+  /**
+   * Live quotes for many instruments at once, including open interest for
+   * derivatives. Batched by the adapter — the caller passes as many instruments as it
+   * wants and does not need to know the broker's per-request ceiling.
+   */
+  getQuotes(
+    session: AuthSession,
+    instrumentIds: string[],
+  ): Promise<AdapterResult<Quote[]>>;
 }
