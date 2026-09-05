@@ -641,7 +641,7 @@ function renderScannerResults(container, outcome) {
 
   const table = el(`
     <table class="scan-table">
-      <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Band</th><th>Points</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>Symbol</th><th>Conviction</th><th>Band</th><th>Regime</th><th>Evidence</th><th></th></tr></thead>
       <tbody></tbody>
     </table>
   `);
@@ -659,6 +659,7 @@ function renderScannerResults(container, outcome) {
           </div>
         </td>
         <td><span class="${bandClass(stock.band)}"></span></td>
+        <td><span class="regime-tag"></span></td>
         <td class="scan-points"></td>
         <td><span class="expand-hint">▸</span></td>
       </tr>
@@ -667,7 +668,17 @@ function renderScannerResults(container, outcome) {
     row.querySelector(".conviction-fill").style.width = `${stock.conviction}%`;
     row.querySelector(".conviction-value").textContent = String(stock.conviction);
     row.querySelector(".band").textContent = stock.band;
-    row.querySelector(".scan-points").textContent = `${stock.earnedPoints}/${stock.attainablePoints}`;
+    const regimeTag = row.querySelector(".regime-tag");
+    regimeTag.textContent = stock.regime ?? "—";
+    regimeTag.className = `regime-tag regime-${stock.regime ?? "UNKNOWN"}`;
+    // Evidence base, not just points: a 100 scored on 2 factors is not the same
+    // claim as a 100 scored on 7, and the table must not present them identically.
+    const scored = stock.factorsScored ?? 0;
+    const total = stock.factorsTotal ?? 0;
+    const points = row.querySelector(".scan-points");
+    points.textContent = `${scored}/${total} factors`;
+    if (total > 0 && scored < total) points.classList.add("evidence-thin");
+    points.title = `${stock.earnedPoints}/${stock.attainablePoints} points across ${scored} scored factors`;
     tbody.appendChild(row);
 
     // The per-factor breakdown — the point of the whole design. A conviction number
@@ -680,7 +691,8 @@ function renderScannerResults(container, outcome) {
         row.querySelector(".expand-hint").textContent = "▸";
         return;
       }
-      detailRow = el(`<tr><td colspan="6"><div class="factor-list"></div></td></tr>`);
+      detailRow = el(`<tr><td colspan="7"><div class="factor-detail-wrap"><div class="regime-line"></div><div class="factor-list"></div></div></td></tr>`);
+      detailRow.querySelector(".regime-line").textContent = `Regime: ${stock.regime ?? "—"} — ${stock.regimeDetail ?? ""}`;
       const list = detailRow.querySelector(".factor-list");
       for (const f of stock.factors) {
         const item = el(`

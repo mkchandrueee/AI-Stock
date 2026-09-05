@@ -21,6 +21,8 @@
  *    different costume.
  */
 import { ema, rsi, sma } from "./indicators.js";
+import { adx as computeAdx, macd as computeMacd } from "./indicators-ohlc.js";
+import { detectRegime } from "./regime.js";
 
 export interface Bar {
   timestamp: string;
@@ -47,10 +49,20 @@ export interface StockScore {
   instrumentId: string;
   tradingSymbol: string;
   exchange: string;
+  /** Market regime for this instrument — reported alongside the score rather than
+   * folded into it, so a strong score in a BEAR regime stays visible as exactly that. */
+  regime: string;
+  regimeDetail: string;
   /** 0–100, normalised over the factors that could actually be computed. */
   conviction: number;
   earnedPoints: number;
   attainablePoints: number;
+  /** How many factors actually contributed. Conviction normalises over available
+   * factors so missing history isn't punished — but that means a 100 scored on two
+   * factors and a 100 scored on seven look identical unless the evidence base is
+   * reported. It is, and it also breaks ties in ranking. */
+  factorsScored: number;
+  factorsTotal: number;
   band: ScoreBand;
   factors: FactorScore[];
 }
@@ -229,6 +241,55 @@ function scoreVolume(bars: Bar[]): FactorScore {
 }
 
 /**
+ * Trend quality from ADX. Distinct from the Trend factor, which asks "which way";
+ * this asks "is the trend strong enough to mean anything". A stacked-EMA reading in a
+ * directionless market scores well on Trend and poorly here, which is the point.
+ */
+function scoreTrendQuality(bars: Bar[]): FactorScore {
+  const MAX = 15;
+  const result = computeAdx(bars);
+  if (result === null) return unavailable("Trend quality", MAX, "needs at least 29 bars of history");
+
+  let points: number;
+  if (result.adx >= 40) points = MAX;
+  else if (result.adx >= 25) points = 11;
+  else if (result.adx >= 20) points = 7;
+  else points = 3;
+  // Direction matters too: a strong trend pointing down shouldn't score like one
+  // pointing up, since every other factor here reads long.
+  if (result.diMinus > result.diPlus) points = Math.round(points * 0.4);
+
+  return {
+    factor: "Trend quality",
+    status: "SCORED",
+    points,
+    max: MAX,
+    detail: `ADX ${result.adx.toFixed(1)}, +DI ${result.diPlus.toFixed(1)} vs -DI ${result.diMinus.toFixed(1)}`,
+  };
+}
+
+/** MACD histogram — momentum confirmation independent of raw price change. */
+function scoreMacd(bars: Bar[]): FactorScore {
+  const MAX = 10;
+  const result = computeMacd(bars.map((b) => b.close));
+  if (result === null) return unavailable("MACD", MAX, "needs at least 35 bars of history");
+
+  let points: number;
+  if (result.macd > 0 && result.histogram > 0) points = MAX; // trending up, still expanding
+  else if (result.macd > 0) points = 6; // above zero but contracting
+  else if (result.histogram > 0) points = 4; // below zero but improving
+  else points = 0;
+
+  return {
+    factor: "MACD",
+    status: "SCORED",
+    points,
+    max: MAX,
+    detail: `MACD ${result.macd.toFixed(2)}, signal ${result.signal.toFixed(2)}, histogram ${result.histogram.toFixed(2)}`,
+  };
+}
+
+/**
  * RSI positioning. Scores the healthy-but-not-extended middle highest: deeply
  * overbought readings score low here not as a bearish call but because they mark a
  * stretched entry, and that is what this factor measures.
@@ -269,6 +330,8 @@ export function scoreInstrument(input: ScoreInput, benchmark?: Bar[]): StockScor
     scoreRelativeStrength(input.bars, benchmark),
     scoreVolume(input.bars),
     scoreRsiPosition(input.bars),
+    scoreTrendQuality(input.bars),
+    scoreMacd(input.bars),
   ];
 
   let earnedPoints = 0;
@@ -279,14 +342,21 @@ export function scoreInstrument(input: ScoreInput, benchmark?: Bar[]): StockScor
     attainablePoints += f.max;
   }
   const conviction = attainablePoints === 0 ? 0 : Math.round((earnedPoints / attainablePoints) * 100);
+  const factorsScored = factors.filter((f) => f.status === "SCORED").length;
+
+  const regime = detectRegime(input.bars);
 
   return {
     instrumentId: input.instrumentId,
     tradingSymbol: input.tradingSymbol,
     exchange: input.exchange,
+    regime: regime.regime,
+    regimeDetail: regime.detail,
     conviction,
     earnedPoints,
     attainablePoints,
+    factorsScored,
+    factorsTotal: factors.length,
     band: bandFor(conviction),
     factors,
   };
@@ -323,6 +393,15 @@ export function rankInstruments(
     ranked.push(score);
   }
 
-  ranked.sort((a, b) => b.conviction - a.conviction || a.tradingSymbol.localeCompare(b.tradingSymbol));
+  // Conviction first, then evidence: two instruments at the same conviction are NOT
+  // equally informative if one was judged on seven factors and the other on two.
+  // Observed directly — a stock with 28 bars of history tied at 100 with one scored on
+  // its full history, which reads as equal confidence and isn't.
+  ranked.sort(
+    (a, b) =>
+      b.conviction - a.conviction ||
+      b.attainablePoints - a.attainablePoints ||
+      a.tradingSymbol.localeCompare(b.tradingSymbol),
+  );
   return { ranked, unscorable };
 }

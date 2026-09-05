@@ -145,3 +145,30 @@ test("score bands map as documented", () => {
   assert.equal(bandFor(40), "NEUTRAL");
   assert.equal(bandFor(10), "WEAK");
 });
+
+test("equal conviction ranks the better-evidenced instrument first", () => {
+  // Both should reach a high conviction, but one has only enough history for a
+  // couple of factors. Tying them would present thin evidence as equal confidence.
+  const { ranked } = rankInstruments([
+    { instrumentId: "thin", tradingSymbol: "THIN", exchange: "NSE", bars: bars(rising(28)) },
+    { instrumentId: "full", tradingSymbol: "FULL", exchange: "NSE", bars: bars(rising(120)) },
+  ]);
+  const thin = ranked.find((r) => r.tradingSymbol === "THIN")!;
+  const full = ranked.find((r) => r.tradingSymbol === "FULL")!;
+  assert.ok(full.factorsScored > thin.factorsScored, "fixture should differ in evidence");
+  if (thin.conviction === full.conviction) {
+    assert.equal(ranked[0]!.tradingSymbol, "FULL", "more evidence must win the tie");
+  }
+  assert.ok(full.attainablePoints > thin.attainablePoints);
+});
+
+test("factorsScored reports the evidence base behind a conviction", () => {
+  const score = scoreInstrument({
+    instrumentId: "x",
+    tradingSymbol: "X",
+    exchange: "NSE",
+    bars: bars(rising(28)),
+  });
+  assert.ok(score.factorsScored < score.factorsTotal, "thin history should leave factors unscored");
+  assert.ok(score.factorsScored > 0);
+});
