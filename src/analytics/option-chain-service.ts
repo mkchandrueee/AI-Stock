@@ -12,6 +12,16 @@
  */
 import type { Pool } from "pg";
 import type { AuthSession, BrokerAdapter } from "../core/broker-adapter.js";
+import {
+  atmStrike,
+  computeOiStructure,
+  daysToExpiry as computeDte,
+  greeks,
+  impliedVolatility,
+  thetaPressure,
+  type Greeks,
+  type OiStructure,
+} from "./option-metrics.js";
 
 /**
  * Formats a DATE from Postgres as YYYY-MM-DD using LOCAL components.
@@ -40,6 +50,11 @@ export interface ChainSide {
   percentChange: number;
   openInterest: number | null;
   volume: number;
+  /** Solved from this contract's own premium. Null when the premium admits no
+   * solution — see impliedVolatility. */
+  impliedVolatility: number | null;
+  /** Computed at this contract's own IV. Null whenever IV is. */
+  greeks: Greeks | null;
 }
 
 export interface OiWall {
@@ -65,6 +80,14 @@ export interface OptionChain {
   maxPain: number | null;
   topCallWalls: OiWall[];
   topPutWalls: OiWall[];
+  /** ATM IV, IV skew (put IV - call IV) and the OI-structure measures ported from
+   * AI-trader — see option-metrics.ts. */
+  atmStrike: number | null;
+  atmIv: number | null;
+  ivSkew: number | null;
+  daysToExpiry: number;
+  thetaPressure: number | null;
+  oiStructure: OiStructure;
   /** Contracts whose quote the broker didn't return — named, not silently missing. */
   missingQuotes: number;
 }
@@ -178,6 +201,10 @@ export class OptionChainService {
     }
     const quoteById = new Map(quoteResult.value.map((q) => [q.instrumentId, q]));
 
+    // Spot and days-to-expiry are needed before any per-contract IV can be solved.
+    const spot = quoteById.get(underlyingId)?.ltp ?? null;
+    const dte = computeDte(expiry);
+
     const byStrike = new Map<number, ChainRow>();
     let missingQuotes = 0;
     for (const row of contracts.rows) {
@@ -187,6 +214,11 @@ export class OptionChainService {
         missingQuotes++;
         continue;
       }
+      const optionType = row.option_type === "CE" ? "CE" : "PE";
+      const iv =
+        spot === null
+          ? null
+          : impliedVolatility(quote.ltp, spot, strike, Math.max(dte, 1), optionType);
       const side: ChainSide = {
         instrumentId: row.instrument_id,
         tradingSymbol: row.trading_symbol,
@@ -195,6 +227,14 @@ export class OptionChainService {
         percentChange: quote.percentChange,
         openInterest: quote.openInterest,
         volume: quote.tradeVolume,
+        impliedVolatility: iv,
+        greeks:
+          iv === null || spot === null
+            ? null
+            : greeks(
+                { spot, strike, timeToExpiry: Math.max(dte, 1) / 365, volatility: iv },
+                optionType,
+              ),
       };
       const entry = byStrike.get(strike) ?? { strike, call: null, put: null };
       if (row.option_type === "CE") entry.call = side;
@@ -205,6 +245,17 @@ export class OptionChainService {
     const rows = Array.from(byStrike.values()).sort((a, b) => a.strike - b.strike);
     const totalCallOi = rows.reduce((sum, r) => sum + (r.call?.openInterest ?? 0), 0);
     const totalPutOi = rows.reduce((sum, r) => sum + (r.put?.openInterest ?? 0), 0);
+
+    const oiStrikes = rows.map((r) => ({
+      strike: r.strike,
+      callOi: r.call?.openInterest ?? 0,
+      putOi: r.put?.openInterest ?? 0,
+    }));
+    const atm = spot === null ? null : atmStrike(oiStrikes, spot);
+    const atmRow = atm === null ? undefined : rows.find((r) => r.strike === atm);
+    const atmCallIv = atmRow?.call?.impliedVolatility ?? null;
+    const atmPutIv = atmRow?.put?.impliedVolatility ?? null;
+    const bothIv = atmCallIv !== null && atmPutIv !== null;
 
     return {
       ok: true,
@@ -219,6 +270,14 @@ export class OptionChainService {
         maxPain: computeMaxPain(rows),
         topCallWalls: topWalls(rows, "CALL", 3),
         topPutWalls: topWalls(rows, "PUT", 3),
+        atmStrike: atm,
+        // Average the two ATM IVs when both solve; fall back to whichever did rather
+        // than reporting nothing, and null only when neither did.
+        atmIv: bothIv ? (atmCallIv! + atmPutIv!) / 2 : (atmCallIv ?? atmPutIv),
+        ivSkew: bothIv ? atmPutIv! - atmCallIv! : null,
+        daysToExpiry: dte,
+        thetaPressure: thetaPressure(atmRow?.call?.ltp ?? 0, atmRow?.put?.ltp ?? 0, dte),
+        oiStructure: computeOiStructure(oiStrikes, spot ?? 0),
         missingQuotes,
       },
     };

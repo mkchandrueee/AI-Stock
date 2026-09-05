@@ -19,6 +19,8 @@ function row(strike: number, callOi: number | null, putOi: number | null): Chain
           percentChange: 0,
           openInterest: oi,
           volume: 0,
+          impliedVolatility: null,
+          greeks: null,
         };
   return { strike, call: side(callOi, "CE"), put: side(putOi, "PE") };
 }

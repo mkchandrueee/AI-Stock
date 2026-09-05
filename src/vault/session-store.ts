@@ -43,10 +43,22 @@ export class SessionStore {
    * expiresAt — an expired session is treated as absent, not as stale data to hand
    * back. Deletes the expired entry rather than leaving it to be found again later. */
   async load(accountId: string): Promise<AuthSession | null> {
-    const response = await fetch(this.pathFor(accountId), {
-      method: "GET",
-      headers: this.headers(),
-    });
+    // A connection failure here is the secret store being down, not the account
+    // having no session. Left unwrapped it surfaces as a bare "fetch failed" 500,
+    // which reads as a broker problem and sends you looking in the wrong place —
+    // observed exactly that way when the dev-mode instance had exited.
+    let response: Response;
+    try {
+      response = await fetch(this.pathFor(accountId), {
+        method: "GET",
+        headers: this.headers(),
+      });
+    } catch (err) {
+      throw new Error(
+        `SessionStore unreachable at ${this.config.baseUrl} — is OpenBao running? ` +
+          `(${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
     if (response.status === 404) {
       await this.auditLog.log("SESSION_LOADED", accountId, { outcome: "NOT_FOUND" });
       return null;
